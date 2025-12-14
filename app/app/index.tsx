@@ -10,7 +10,7 @@ export default function SplashScreen() {
   const slideAnim = useRef(new Animated.Value(50)).current;
 
   useEffect(() => {
-    // 启动动画
+    // 启动了动画
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
