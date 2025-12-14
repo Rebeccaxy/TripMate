@@ -75,7 +75,7 @@ const styles = StyleSheet.create({
   logo: {
     width: 250,
     height: 200,
-    // 根据你的logo实际尺寸调整 width 和 height
+    // 根据你的logo实际尺寸调整 width 和 height1
   },
 });
 
