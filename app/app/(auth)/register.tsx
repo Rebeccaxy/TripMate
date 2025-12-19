@@ -128,6 +128,13 @@ export default function RegisterScreen() {
 
   const handleSocialLogin = (provider: 'google' | 'apple' | 'facebook') => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
+    // 开发模式：点击苹果图标直接跳转到主界面
+    if (provider === 'apple') {
+      router.replace('/(tabs)');
+      return;
+    }
+    
     // TODO: 实现第三方登录逻辑
     console.log(`${provider} register`);
   };

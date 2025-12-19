@@ -27,3 +27,6 @@
 require('@/assets/images/auth/login-bg.png')
 require('@/assets/images/auth/wechat.png')
 ```
+
+
+
