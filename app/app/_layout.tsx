@@ -47,7 +47,7 @@ export default function RootLayout() {
             }} 
           />
         <Stack.Screen
-          name="chat"
+          name="chat/[id]"
           options={{
             headerShown: false,
             header: () => null,
@@ -116,6 +116,15 @@ export default function RootLayout() {
                 },
               },
             },
+          }}
+        />
+        <Stack.Screen
+          name="chat/new"
+          options={{
+            headerShown: false,
+            presentation: 'card',
+            tabBarStyle: { display: 'none' },
+            navigationBarHidden: true,
           }}
         />
         <Stack.Screen
