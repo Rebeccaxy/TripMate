@@ -22,3 +22,6 @@ require('@/assets/images/home/home-bg.png')
 - 背景图尺寸建议适配不同屏幕尺寸
 - 如果使用@2x和@3x版本，系统会自动根据设备分辨率选择合适的图片
 
+
+
+

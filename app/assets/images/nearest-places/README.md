@@ -27,3 +27,6 @@ require('@/assets/images/nearest-places/NP2.png')
 - 图片建议使用方形或接近方形（用于卡片左侧显示）
 - 如果使用@2x和@3x版本，系统会自动根据设备分辨率选择合适的图片
 
+
+
+

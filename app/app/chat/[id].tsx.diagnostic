@@ -1,0 +1,84 @@
+// 诊断实验代码 - 用于定位内存溢出问题
+// 使用方法：临时替换 handleSend 函数中的相关代码
+
+// ============================================
+// 实验 A：不调用 AI，返回固定小回复
+// ============================================
+const handleSend_EXPERIMENT_A = async () => {
+  if (inputText.trim() === '') return;
+  
+  const messageText = inputText.trim();
+  const userMessage: ChatMessage = {
+    id: Date.now().toString(),
+    text: messageText,
+    isUser: true,
+    timestamp: new Date(),
+  };
+  
+  setMessages((prev) => {
+    const newMessages = [...prev, userMessage];
+    return newMessages.length > MAX_MESSAGES_IN_MEMORY
+      ? newMessages.slice(-MAX_MESSAGES_IN_MEMORY)
+      : newMessages;
+  });
+  setInputText('');
+  
+  // 🔴 实验A：不调用AI，直接返回固定小回复
+  const fakeResponse: ChatMessage = {
+    id: Date.now().toString() + '-bot',
+    text: 'ok', // 固定小回复
+    isUser: false,
+    timestamp: new Date(),
+  };
+  
+  setMessages((prev) => {
+    const newMessages = [...prev, fakeResponse];
+    return newMessages.length > MAX_MESSAGES_IN_MEMORY
+      ? newMessages.slice(-MAX_MESSAGES_IN_MEMORY)
+      : newMessages;
+  });
+  
+  // 如果这样不闪退，问题在 AI 请求/响应处理
+  // 如果仍然闪退，问题在 UI 组件/渲染链
+};
+
+// ============================================
+// 实验 B：调用 AI，但不渲染结果
+// ============================================
+const handleSend_EXPERIMENT_B = async () => {
+  if (inputText.trim() === '') return;
+  
+  const messageText = inputText.trim();
+  const userMessage: ChatMessage = {
+    id: Date.now().toString(),
+    text: messageText,
+    isUser: true,
+    timestamp: new Date(),
+  };
+  
+  setMessages((prev) => {
+    const newMessages = [...prev, userMessage];
+    return newMessages.length > MAX_MESSAGES_IN_MEMORY
+      ? newMessages.slice(-MAX_MESSAGES_IN_MEMORY)
+      : newMessages;
+  });
+  setInputText('');
+  
+  // 调用AI服务
+  try {
+    const { getAIResponse } = await import('@/services/chatService');
+    const aiResponse = await getAIResponse(messageText, id || '');
+    
+    // 🔴 实验B：只打印，不setState，不渲染
+    console.log('[实验B] AI回复成功，长度:', aiResponse.length);
+    console.log('[实验B] done'); // 只打印这个，不更新UI
+    
+    // 如果这样不闪退，问题在 setState + 渲染
+    // 如果仍然闪退，问题在 响应读取/解析
+  } catch (error) {
+    console.error('[实验B] 获取AI回复失败:', error);
+  }
+};
+
+
+

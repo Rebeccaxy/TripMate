@@ -25,3 +25,6 @@ require('@/assets/images/avatars/default-avatar.png')
 - 头像建议使用圆形裁剪
 - 如果使用@2x和@3x版本，系统会自动根据设备分辨率选择合适的图片
 
+
+
+

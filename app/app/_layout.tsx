@@ -3,6 +3,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { CardStyleInterpolators } from '@react-navigation/stack';
+import { useEffect } from 'react';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -11,8 +12,42 @@ export const unstable_settings = {
   anchor: '(tabs)',
 };
 
+// 全局错误处理 - 防止未捕获的错误导致崩溃
+if (typeof ErrorUtils !== 'undefined') {
+  const defaultHandler = ErrorUtils.getGlobalHandler();
+  ErrorUtils.setGlobalHandler((error: Error, isFatal?: boolean) => {
+    console.error('全局错误捕获:', error, 'isFatal:', isFatal);
+    // 记录错误
+    if (defaultHandler) {
+      defaultHandler(error, isFatal);
+    }
+  });
+}
+
+// 捕获未处理的Promise rejection（React Native环境）
+if (typeof global !== 'undefined' && global.HermesInternal) {
+  // Hermes引擎环境
+  const originalPromiseRejectionTracker = (global as any).HermesInternal?.enablePromiseRejectionTracker;
+  if (originalPromiseRejectionTracker) {
+    (global as any).HermesInternal.enablePromiseRejectionTracker({
+      allRejections: true,
+    });
+  }
+}
+
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+
+  // 在开发模式下捕获所有错误
+  useEffect(() => {
+    if (__DEV__) {
+      const originalConsoleError = console.error;
+      console.error = (...args: any[]) => {
+        originalConsoleError.apply(console, args);
+        // 在开发模式下，我们可以在这里添加额外的错误处理
+      };
+    }
+  }, []);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

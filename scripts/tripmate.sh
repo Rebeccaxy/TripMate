@@ -15,3 +15,6 @@ cd "$APP_DIR"
 # - 若已配置 Xcode 和 iOS 模拟器，会自动在模拟器中打开 Expo Go
 npm run ios
 
+
+
+

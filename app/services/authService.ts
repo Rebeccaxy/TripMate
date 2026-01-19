@@ -1,45 +1,53 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { API_CONFIG } from '@/config/api';
 
 // 用户数据类型
 export interface User {
   id: string;
   name: string;
   email: string;
-  password: string; // 注意：实际应用中不应该存储明文密码，这里仅用于演示
   createdAt: string;
 }
 
+// API基础URL
+const API_BASE_URL = API_CONFIG.BASE_URL;
+
 // 存储键名
-const USERS_STORAGE_KEY = '@tripMate:users';
+const TOKEN_KEY = '@tripMate:token';
 const CURRENT_USER_KEY = '@tripMate:currentUser';
 const IS_LOGGED_IN_KEY = '@tripMate:isLoggedIn';
 
 /**
- * 获取所有用户
+ * 获取存储的JWT令牌
  */
-export async function getAllUsers(): Promise<User[]> {
+async function getToken(): Promise<string | null> {
   try {
-    const usersJson = await AsyncStorage.getItem(USERS_STORAGE_KEY);
-    if (usersJson) {
-      return JSON.parse(usersJson);
-    }
-    return [];
+    return await AsyncStorage.getItem(TOKEN_KEY);
   } catch (error) {
-    console.error('获取用户列表失败:', error);
-    return [];
+    console.error('获取令牌失败:', error);
+    return null;
   }
 }
 
 /**
- * 根据邮箱查找用户
+ * 保存JWT令牌
  */
-export async function getUserByEmail(email: string): Promise<User | null> {
+async function saveToken(token: string): Promise<void> {
   try {
-    const users = await getAllUsers();
-    return users.find(user => user.email.toLowerCase() === email.toLowerCase()) || null;
+    await AsyncStorage.setItem(TOKEN_KEY, token);
   } catch (error) {
-    console.error('查找用户失败:', error);
-    return null;
+    console.error('保存令牌失败:', error);
+  }
+}
+
+/**
+ * 清除JWT令牌
+ */
+async function clearToken(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(TOKEN_KEY);
+  } catch (error) {
+    console.error('清除令牌失败:', error);
   }
 }
 
@@ -77,39 +85,43 @@ export async function registerUser(
       };
     }
 
-    // 检查用户是否已存在
-    const existingUser = await getUserByEmail(email);
-    if (existingUser) {
+    // 调用后端API
+    const response = await fetch(`${API_BASE_URL}/auth/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name,
+        email,
+        password,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (data.success && data.user && data.token) {
+      // 保存令牌和用户信息
+      await saveToken(data.token);
+      await AsyncStorage.setItem(CURRENT_USER_KEY, JSON.stringify(data.user));
+      await AsyncStorage.setItem(IS_LOGGED_IN_KEY, 'true');
+
+      return {
+        success: true,
+        message: data.message || '注册成功',
+        user: data.user,
+      };
+    } else {
       return {
         success: false,
-        message: '该邮箱已被注册',
+        message: data.message || '注册失败，请稍后重试',
       };
     }
-
-    // 创建新用户
-    const newUser: User = {
-      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-      name,
-      email: email.toLowerCase(),
-      password, // 注意：实际应用中应该使用加密存储
-      createdAt: new Date().toISOString(),
-    };
-
-    // 保存用户
-    const users = await getAllUsers();
-    users.push(newUser);
-    await AsyncStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
-
-    return {
-      success: true,
-      message: '注册成功',
-      user: newUser,
-    };
   } catch (error) {
     console.error('注册失败:', error);
     return {
       success: false,
-      message: '注册失败，请稍后重试',
+      message: '网络错误，请检查服务器连接',
     };
   }
 }
@@ -130,37 +142,42 @@ export async function loginUser(
       };
     }
 
-    // 查找用户
-    const user = await getUserByEmail(email);
-    if (!user) {
+    // 调用后端API
+    const response = await fetch(`${API_BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email,
+        password,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (data.success && data.user && data.token) {
+      // 保存令牌和用户信息
+      await saveToken(data.token);
+      await AsyncStorage.setItem(CURRENT_USER_KEY, JSON.stringify(data.user));
+      await AsyncStorage.setItem(IS_LOGGED_IN_KEY, 'true');
+
+      return {
+        success: true,
+        message: data.message || '登录成功',
+        user: data.user,
+      };
+    } else {
       return {
         success: false,
-        message: '邮箱或密码错误',
+        message: data.message || '登录失败，请稍后重试',
       };
     }
-
-    // 验证密码
-    if (user.password !== password) {
-      return {
-        success: false,
-        message: '邮箱或密码错误',
-      };
-    }
-
-    // 保存登录状态
-    await AsyncStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
-    await AsyncStorage.setItem(IS_LOGGED_IN_KEY, 'true');
-
-    return {
-      success: true,
-      message: '登录成功',
-      user,
-    };
   } catch (error) {
     console.error('登录失败:', error);
     return {
       success: false,
-      message: '登录失败，请稍后重试',
+      message: '网络错误，请检查服务器连接',
     };
   }
 }
@@ -170,6 +187,7 @@ export async function loginUser(
  */
 export async function logoutUser(): Promise<void> {
   try {
+    await clearToken();
     await AsyncStorage.removeItem(CURRENT_USER_KEY);
     await AsyncStorage.setItem(IS_LOGGED_IN_KEY, 'false');
   } catch (error) {
@@ -182,10 +200,36 @@ export async function logoutUser(): Promise<void> {
  */
 export async function getCurrentUser(): Promise<User | null> {
   try {
+    const token = await getToken();
+    if (!token) {
+      return null;
+    }
+
+    // 尝试从本地存储获取
     const userJson = await AsyncStorage.getItem(CURRENT_USER_KEY);
     if (userJson) {
       return JSON.parse(userJson);
     }
+
+    // 如果本地没有，尝试从服务器获取
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/me`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data = await response.json();
+      if (data.success && data.user) {
+        await AsyncStorage.setItem(CURRENT_USER_KEY, JSON.stringify(data.user));
+        return data.user;
+      }
+    } catch (apiError) {
+      console.error('从服务器获取用户失败:', apiError);
+    }
+
     return null;
   } catch (error) {
     console.error('获取当前用户失败:', error);
@@ -198,13 +242,21 @@ export async function getCurrentUser(): Promise<User | null> {
  */
 export async function isLoggedIn(): Promise<boolean> {
   try {
-    const isLoggedIn = await AsyncStorage.getItem(IS_LOGGED_IN_KEY);
-    return isLoggedIn === 'true';
+    const token = await getToken();
+    if (!token) {
+      return false;
+    }
+
+    const isLoggedInFlag = await AsyncStorage.getItem(IS_LOGGED_IN_KEY);
+    return isLoggedInFlag === 'true' && !!token;
   } catch (error) {
     console.error('检查登录状态失败:', error);
     return false;
   }
 }
+
+
+
 
 
 

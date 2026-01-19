@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import Markdown from 'react-native-markdown-display';
 import {
   StyleSheet,
   View,
@@ -16,6 +17,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useRouter, useLocalSearchParams, useNavigation } from 'expo-router';
 import * as SystemUI from 'expo-system-ui';
+import * as Clipboard from 'expo-clipboard';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -28,7 +30,9 @@ import {
   saveChatMessages,
   addMessageToChat,
   deleteConversation,
+  clearChatMessages,
   formatUpdatedAt,
+  normalizeMarkdownForDisplay,
   type ChatConversation,
   type ChatMessage,
 } from '@/services/chatService';
@@ -99,6 +103,9 @@ export default function ChatDetailScreen() {
   const router = useRouter();
   const navigation = useNavigation();
   const { id, initialMessage } = useLocalSearchParams<{ id: string; initialMessage?: string }>();
+  // 限制消息数组大小，避免内存溢出
+  const MAX_MESSAGES_IN_MEMORY = 30;
+  const AI_RESPONSE_TIMEOUT_MS = 20000;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [hasAutoReplied, setHasAutoReplied] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(true);
@@ -113,8 +120,12 @@ export default function ChatDetailScreen() {
         const savedMessages = await getChatMessages(id);
         
         if (savedMessages.length > 0) {
-          // 如果有保存的消息，使用保存的消息
-          setMessages(savedMessages);
+          // 如果有保存的消息，使用保存的消息（已限制数量）
+          // 进一步限制内存中的消息数量
+          const limitedMessages = savedMessages.length > MAX_MESSAGES_IN_MEMORY
+            ? savedMessages.slice(-MAX_MESSAGES_IN_MEMORY)
+            : savedMessages;
+          setMessages(limitedMessages);
         } else if (initialMessage) {
           // 如果是新聊天且有初始消息，创建第一条用户消息
           const firstMessage: ChatMessage = {
@@ -261,9 +272,10 @@ export default function ChatDetailScreen() {
     closeDrawer();
   };
 
-  // 处理开始新对话
+  // 处理开始新对话：生成唯一ID，避免一直使用固定的 "new"
   const handleNewChat = () => {
-    router.push('/chat/new');
+    const newId = Date.now().toString() + '-' + Math.random().toString(36).slice(2, 8);
+    router.push(`/chat/${newId}`);
   };
 
   // 处理退出
@@ -271,6 +283,37 @@ export default function ChatDetailScreen() {
     // 使用 router.back() 来触发转场动画
     // 如果是从新聊天页面来的，新聊天界面已经被replace掉了，所以直接back会回到列表页
     router.back();
+  };
+
+
+  // 清空聊天记录（保留对话）
+  const handleClearMessages = () => {
+    Alert.alert(
+      '清空聊天记录',
+      '仅清空当前对话的消息记录，对话本身会保留。确定继续吗？',
+      [
+        {
+          text: '取消',
+          style: 'cancel',
+        },
+        {
+          text: '清空',
+          style: 'destructive',
+          onPress: async () => {
+            if (!id) return;
+            await clearChatMessages(id);
+            setMessages([]);
+            setInputText('');
+            setHasAutoReplied(false);
+            updateConversation(id, {
+              updatedAt: formatUpdatedAt(new Date()),
+              summary: '已清空对话记录',
+            });
+          },
+        },
+      ],
+      { cancelable: true }
+    );
   };
 
   // 处理删除对话
@@ -308,17 +351,62 @@ export default function ChatDetailScreen() {
     };
   }, []);
 
-  // 滚动到底部
+  // 滚动到底部 - 使用ref避免清理问题
+  const scrollTimeoutRef = useRef<number | null>(null);
   useEffect(() => {
     if (messages.length > 0) {
-      setTimeout(() => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+      scrollTimeoutRef.current = setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
-      }, 100);
+      }, 100) as unknown as number;
     }
+    return () => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    };
   }, [messages.length]);
+
+  // 请求计数器，用于诊断无限循环
+  const requestCountRef = useRef(0);
+  
+  // 确保新对话在存储中创建，避免“new”对话没有持久化
+  const ensureConversationExists = async (chatId: string, firstMessage: string) => {
+    try {
+      const all = await getAllConversations();
+      const exists = all.some((c) => c.id === chatId);
+      if (!exists) {
+        const newConversation: ChatConversation = {
+          id: chatId,
+          title: firstMessage.length > 30 ? firstMessage.slice(0, 30) + '...' : firstMessage,
+          summary: firstMessage,
+          updatedAt: formatUpdatedAt(new Date()),
+        };
+        await addConversation(newConversation);
+      }
+    } catch (error) {
+      console.error('创建新对话失败:', error);
+    }
+  };
 
   const handleSend = async () => {
     if (inputText.trim() === '') return;
+
+    // 如果当前是临时/new路由，先生成正式ID并替换路由，避免无效对话ID导致存储失败
+    let effectiveId = id;
+    if (!effectiveId || effectiveId === 'new') {
+      effectiveId = Date.now().toString() + '-' + Math.random().toString(36).slice(2, 8);
+      router.replace(`/chat/${effectiveId}`);
+    }
+
+    // 诊断：检查是否触发多次
+    requestCountRef.current += 1;
+    const currentRequestId = requestCountRef.current;
+    if (__DEV__) {
+      console.log(`[诊断] 发送消息 #${currentRequestId}`);
+    }
 
     const messageText = inputText.trim();
 
@@ -330,15 +418,22 @@ export default function ChatDetailScreen() {
       timestamp: new Date(),
     };
 
-    setMessages((prev) => [...prev, userMessage]);
+    // 限制消息数组大小，只保留最近的消息
+    setMessages((prev) => {
+      const newMessages = [...prev, userMessage];
+      return newMessages.length > MAX_MESSAGES_IN_MEMORY
+        ? newMessages.slice(-MAX_MESSAGES_IN_MEMORY)
+        : newMessages;
+    });
     setInputText('');
 
-    // 保存用户消息到存储
-    if (id) {
-      await addMessageToChat(id, userMessage);
+    // 保存用户消息到存储（先确保对话存在）
+    if (effectiveId) {
+      await ensureConversationExists(effectiveId, messageText);
+      await addMessageToChat(effectiveId, userMessage);
       
       // 更新对话的更新时间
-      updateConversation(id, {
+      updateConversation(effectiveId, {
         updatedAt: formatUpdatedAt(new Date()),
         summary: messageText.length > 50 
           ? messageText.substring(0, 50) + '...' 
@@ -346,24 +441,156 @@ export default function ChatDetailScreen() {
       });
     }
 
-    // 模拟机器人回复（延迟1秒）
-    setTimeout(async () => {
-      const botMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        text: '收到您的消息！我正在为您处理，请稍候...',
-        isUser: false,
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, botMessage]);
-      
-      // 保存机器人消息到存储
-      if (id) {
-        await addMessageToChat(id, botMessage);
+    // 调用AI生成回复
+    const loadingMessageId = Date.now().toString() + '-loading';
+    const botMessageId = Date.now().toString() + '-bot';
+    
+    // 先显示加载消息
+    const loadingMessage: ChatMessage = {
+      id: loadingMessageId,
+      text: '正在思考中...',
+      isUser: false,
+      timestamp: new Date(),
+    };
+    // 限制消息数组大小
+    setMessages((prev) => {
+      const newMessages = [...prev, loadingMessage];
+      return newMessages.length > MAX_MESSAGES_IN_MEMORY
+        ? newMessages.slice(-MAX_MESSAGES_IN_MEMORY)
+        : newMessages;
+    });
+    
+    // 异步调用AI服务 - 使用简单的async函数，避免复杂的Promise链
+    (async () => {
+      try {
+        console.log('开始调用AI服务...');
+        
+        // 动态导入getAIResponse函数
+        const { getAIResponse } = await import('@/services/chatService');
+        
+        // 调用AI服务
+        if (__DEV__) {
+          console.log(`[诊断] 请求 #${currentRequestId} 开始调用AI服务...`);
+        }
+        
+        // 为AI请求添加超时兜底，避免无响应时一直卡住
+        const withTimeout = <T,>(promise: Promise<T>, timeoutMs: number) =>
+          Promise.race<T>([
+            promise,
+            new Promise<T>((_, reject) =>
+              setTimeout(() => reject(new Error('AI回复超时，请稍后重试')), timeoutMs)
+            ),
+          ]);
+
+        let aiResponse = await withTimeout(
+          getAIResponse(messageText, effectiveId || ''),
+          AI_RESPONSE_TIMEOUT_MS
+        );
+        
+        // 🔴 关键诊断：检查响应大小
+        const responseSize = aiResponse.length;
+        const responseSizeKB = (responseSize / 1024).toFixed(2);
+        if (__DEV__) {
+          console.log(`[诊断] 请求 #${currentRequestId} AI回复大小: ${responseSize} 字符 (${responseSizeKB} KB)`);
+        }
+        
+        // ⚠️ 如果响应过大，记录警告并截断
+        const MAX_RESPONSE_LENGTH = 2000; // 增加到2KB字符（约4KB内存）
+        if (responseSize > MAX_RESPONSE_LENGTH) {
+          console.warn(`[警告] 响应过大(${responseSize}字符)，截断到${MAX_RESPONSE_LENGTH}字符`);
+          aiResponse = aiResponse.substring(0, MAX_RESPONSE_LENGTH) + '\n\n[响应已截断，内容过长]';
+        }
+        
+        // 检查组件是否仍然挂载
+        if (!id) {
+          console.log('组件已卸载，跳过状态更新');
+          return;
+        }
+        
+        // 🔴 关键诊断：在 setState 之前检查数据大小
+        const botMessage: ChatMessage = {
+          id: botMessageId,
+          text: aiResponse,
+          isUser: false,
+          timestamp: new Date(),
+        };
+        
+        // 检查消息对象大小（估算）
+        const messageSizeEstimate = JSON.stringify(botMessage).length;
+        if (__DEV__) {
+          console.log(`[诊断] 请求 #${currentRequestId} 准备setState，消息对象大小: ${messageSizeEstimate} 字符`);
+        }
+        
+        // 使用更轻量级的状态更新方式
+        setMessages((prev) => {
+          // 创建新数组，但只保留必要的消息
+          const newMessages: ChatMessage[] = [];
+          for (let i = 0; i < prev.length; i++) {
+            if (prev[i].id !== loadingMessageId) {
+              newMessages.push(prev[i]);
+            }
+          }
+          newMessages.push(botMessage);
+          
+          // 限制消息数组大小
+          const limitedMessages = newMessages.length > MAX_MESSAGES_IN_MEMORY
+            ? newMessages.slice(-MAX_MESSAGES_IN_MEMORY)
+            : newMessages;
+          
+          if (__DEV__) {
+            console.log(`[诊断] 请求 #${currentRequestId} setState完成，消息总数: ${limitedMessages.length}`);
+          }
+          
+          return limitedMessages;
+        });
+        
+        // 延迟保存到存储，避免阻塞UI
+        setTimeout(async () => {
+          if (!id) return;
+          try {
+            await addMessageToChat(id, {
+              id: botMessageId,
+              text: aiResponse,
+              isUser: false,
+              timestamp: new Date(),
+            });
+          } catch (saveError) {
+            console.error('保存AI回复失败:', saveError);
+          }
+        }, 100);
+      } catch (error) {
+        console.error('获取AI回复失败:', error);
+        
+        // 显示简化的错误消息
+        const errorText = error instanceof Error && error.message.length < 50
+          ? error.message
+          : '服务暂时不可用';
+        
+        try {
+          setMessages((prev) => {
+            const newMessages: ChatMessage[] = [];
+            for (let i = 0; i < prev.length; i++) {
+              if (prev[i].id !== loadingMessageId) {
+                newMessages.push(prev[i]);
+              }
+            }
+            newMessages.push({
+              id: Date.now().toString() + '-error',
+              text: `错误：${errorText}`,
+              isUser: false,
+              timestamp: new Date(),
+            });
+            return newMessages;
+          });
+        } catch (setStateError) {
+          console.error('设置错误消息失败:', setStateError);
+        }
       }
-    }, 1000);
+    })();
   };
 
   // 如果有初始消息且是新聊天，自动发送机器人回复
+  // 注意：需要在 messages 从空 -> 第一条用户消息 时触发一次
   useEffect(() => {
     if (
       initialMessage &&
@@ -374,45 +601,222 @@ export default function ChatDetailScreen() {
       id
     ) {
       setHasAutoReplied(true);
-      setTimeout(async () => {
-        const botMessage: ChatMessage = {
-          id: (Date.now() + 1).toString(),
-          text: "Great! I'd be happy to help you plan your trip. Let me gather some information to create the perfect itinerary for you. What dates are you planning to travel?",
-          isUser: false,
-          timestamp: new Date(),
-        };
-        setMessages((prev) => [...prev, botMessage]);
-        
-        // 保存机器人回复到存储
-        await addMessageToChat(id, botMessage);
-      }, 1000);
+      
+      // 调用AI生成回复
+      const generateAutoReply = async () => {
+        try {
+          const loadingMessageId = Date.now().toString() + '-loading';
+          const botMessageId = Date.now().toString() + '-bot';
+          
+          // 先显示加载消息
+          const loadingMessage: ChatMessage = {
+            id: loadingMessageId,
+            text: '正在思考中...',
+            isUser: false,
+            timestamp: new Date(),
+          };
+          setMessages((prev) => {
+            const newMessages: ChatMessage[] = [];
+            for (let i = 0; i < prev.length; i++) {
+              newMessages.push(prev[i]);
+            }
+            newMessages.push(loadingMessage);
+            // 限制消息数组大小
+            return newMessages.length > MAX_MESSAGES_IN_MEMORY
+              ? newMessages.slice(-MAX_MESSAGES_IN_MEMORY)
+              : newMessages;
+          });
+          
+          // 动态导入getAIResponse函数
+          const { getAIResponse } = await import('@/services/chatService');
+          
+          // 调用AI服务（加超时兜底）
+          const withTimeout = <T,>(promise: Promise<T>, timeoutMs: number) =>
+            Promise.race<T>([
+              promise,
+              new Promise<T>((_, reject) =>
+                setTimeout(() => reject(new Error('AI回复超时，请稍后重试')), timeoutMs)
+              ),
+            ]);
+
+          let aiResponse = await withTimeout(getAIResponse(initialMessage, id), AI_RESPONSE_TIMEOUT_MS);
+          
+          // 🔴 关键诊断：检查响应大小
+          const responseSize = aiResponse.length;
+          if (__DEV__) {
+            console.log(`[诊断] 自动回复响应大小: ${responseSize} 字符`);
+          }
+          
+          // 截断响应，避免内存溢出
+          const maxResponseLength = 2000; // 增加到2KB字符
+          if (aiResponse.length > maxResponseLength) {
+            console.warn(`[警告] 自动回复响应过长(${aiResponse.length}字符)，截断到${maxResponseLength}字符`);
+            aiResponse = aiResponse.substring(0, maxResponseLength) + '\n\n[响应已截断，内容过长]';
+          }
+          
+          // 移除加载消息，添加真实回复
+          setMessages((prev) => {
+            const newMessages: ChatMessage[] = [];
+            for (let i = 0; i < prev.length; i++) {
+              if (prev[i].id !== loadingMessageId) {
+                newMessages.push(prev[i]);
+              }
+            }
+            newMessages.push({
+              id: botMessageId,
+              text: aiResponse,
+              isUser: false,
+              timestamp: new Date(),
+            });
+            // 限制消息数组大小
+            return newMessages.length > MAX_MESSAGES_IN_MEMORY
+              ? newMessages.slice(-MAX_MESSAGES_IN_MEMORY)
+              : newMessages;
+          });
+          
+          // 延迟保存到存储
+          setTimeout(async () => {
+            if (!id) return;
+            try {
+              await addMessageToChat(id, {
+                id: botMessageId,
+                text: aiResponse,
+                isUser: false,
+                timestamp: new Date(),
+              });
+            } catch (saveError) {
+              console.error('保存AI回复失败:', saveError);
+            }
+          }, 100);
+        } catch (error) {
+          console.error('获取AI回复失败:', error);
+          
+          // 显示简化的错误消息
+          const errorText = error instanceof Error && error.message.length < 50
+            ? error.message
+            : '服务暂时不可用';
+          
+          setMessages((prev) => {
+            const newMessages: ChatMessage[] = [];
+            for (let i = 0; i < prev.length; i++) {
+              if (!prev[i].text.includes('正在思考中')) {
+                newMessages.push(prev[i]);
+              }
+            }
+            newMessages.push({
+              id: Date.now().toString() + '-error',
+              text: `错误：${errorText}`,
+              isUser: false,
+              timestamp: new Date(),
+            });
+            // 限制消息数组大小
+            return newMessages.length > MAX_MESSAGES_IN_MEMORY
+              ? newMessages.slice(-MAX_MESSAGES_IN_MEMORY)
+              : newMessages;
+          });
+        }
+      };
+      
+      generateAutoReply();
     }
-  }, [initialMessage, messages, hasAutoReplied, id]);
+  }, [initialMessage, hasAutoReplied, id, messages.length, messages[0]?.text, messages[0]?.isUser]);
+
+  // 复制消息文本
+  const handleCopyMessage = async (text: string) => {
+    try {
+      await Clipboard.setStringAsync(text);
+      Alert.alert('已复制', '消息已复制到剪贴板');
+    } catch (error) {
+      console.error('复制失败:', error);
+      Alert.alert('复制失败', '无法复制消息，请稍后重试');
+    }
+  };
+
+  // 粘贴文本到输入框
+  const handlePaste = async () => {
+    try {
+      const hasContent = await Clipboard.hasStringAsync();
+      if (!hasContent) {
+        Alert.alert('剪贴板为空', '没有可粘贴的内容');
+        return;
+      }
+      const text = await Clipboard.getStringAsync();
+      if (text) {
+        setInputText((prev) => prev + text);
+      } else {
+        Alert.alert('剪贴板为空', '没有可粘贴的内容');
+      }
+    } catch (error) {
+      console.error('粘贴失败:', error);
+      Alert.alert('粘贴失败', '无法读取剪贴板内容');
+    }
+  };
+
+
+  const shouldRenderMarkdown = (text: string): boolean => {
+    // 简单兜底：过长或代码块太多时降级为纯文本，避免渲染耗时/内存爆
+    const maxMarkdownLength = 1800;
+    const maxCodeFenceCount = 6;
+    if (text.length > maxMarkdownLength) return false;
+    const fenceCount = (text.match(/```/g) || []).length;
+    if (fenceCount > maxCodeFenceCount) return false;
+    return true;
+  };
 
   const renderMessage = ({ item }: { item: ChatMessage }) => {
+    const displayText = item.isUser
+      ? item.text
+      : normalizeMarkdownForDisplay(item.text);
+    const renderAsMarkdown = !item.isUser && shouldRenderMarkdown(displayText);
+
     return (
       <View
         style={[
           styles.messageContainer,
           item.isUser ? styles.userMessageContainer : styles.botMessageContainer,
         ]}>
-        <View
+        <Pressable
           style={[
             styles.messageBubble,
             item.isUser
               ? styles.userBubble
               : [styles.botBubble, { backgroundColor: botBubbleColor }],
-          ]}>
-          <ThemedText
-            style={[
-              styles.messageText,
-              item.isUser
-                ? styles.userMessageText
-                : [styles.botMessageText, { color: botTextColor }],
-            ]}>
-            {item.text}
-          </ThemedText>
-        </View>
+          ]}
+          onLongPress={() => handleCopyMessage(displayText)}
+          delayLongPress={500}>
+          {item.isUser || !renderAsMarkdown ? (
+            <ThemedText
+              style={[
+                styles.messageText,
+                item.isUser
+                  ? styles.userMessageText
+                  : [styles.botMessageText, { color: botTextColor }],
+              ]}>
+              {displayText}
+            </ThemedText>
+          ) : (
+            <Markdown
+              style={{
+                body: [styles.messageText, styles.markdownBody, { color: botTextColor }],
+                paragraph: styles.markdownParagraph,
+                code_block: styles.markdownCodeBlock,
+                code_inline: styles.markdownInlineCode,
+                link: styles.markdownLink,
+                list_item: styles.markdownListItem,
+              }}>
+              {displayText}
+            </Markdown>
+          )}
+          <View style={styles.messageActions}>
+            <TouchableOpacity
+              style={styles.messageActionButton}
+              onPress={() => handleCopyMessage(displayText)}
+              activeOpacity={0.7}>
+              <MaterialIcons name="content-copy" size={14} color="#3F99A6" />
+              <ThemedText style={styles.messageActionText}>复制</ThemedText>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
       </View>
     );
   };
@@ -604,6 +1008,12 @@ export default function ChatDetailScreen() {
         <View style={styles.headerRight}>
           <TouchableOpacity
             style={styles.headerButton}
+            onPress={handleClearMessages}
+            activeOpacity={0.7}>
+            <MaterialIcons name="delete-sweep" size={24} color="#FFFFFF" />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.headerButton}
             onPress={handleDelete}
             activeOpacity={0.7}>
             <MaterialIcons name="delete-outline" size={24} color="#FFFFFF" />
@@ -631,13 +1041,28 @@ export default function ChatDetailScreen() {
               keyExtractor={(item) => item.id}
               contentContainerStyle={styles.messagesList}
               showsVerticalScrollIndicator={false}
-              onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+              onContentSizeChange={() => {
+                // 使用requestAnimationFrame避免频繁调用，减少内存压力
+                requestAnimationFrame(() => {
+                  flatListRef.current?.scrollToEnd({ animated: true });
+                });
+              }}
             />
           </ThemedView>
 
           {/* 输入框 */}
           <SafeAreaView edges={['bottom']} style={{ backgroundColor }}>
             <ThemedView style={[styles.inputContainer, { borderTopColor: borderColor }]}>
+              <TouchableOpacity
+                style={styles.pasteButton}
+                onPress={handlePaste}
+                activeOpacity={0.7}>
+                <MaterialIcons
+                  name="content-paste"
+                  size={20}
+                  color="#3F99A6"
+                />
+              </TouchableOpacity>
               <TextInput
                 style={[
                   styles.input,
@@ -799,6 +1224,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 18,
+    position: 'relative',
   },
   userBubble: {
     backgroundColor: '#007A8C',
@@ -815,6 +1241,48 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   botMessageText: {},
+  messageActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  messageActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  messageActionText: {
+    fontSize: 12,
+    color: '#3F99A6',
+    marginLeft: 4,
+  },
+  markdownBody: {
+    fontSize: 16,
+    lineHeight: 22,
+  },
+  markdownParagraph: {
+    marginTop: 0,
+    marginBottom: 8,
+  },
+  markdownListItem: {
+    flexDirection: 'row',
+    marginBottom: 4,
+  },
+  markdownLink: {
+    color: '#3F99A6',
+  },
+  markdownCodeBlock: {
+    backgroundColor: 'rgba(0, 0, 0, 0.08)',
+    padding: 8,
+    borderRadius: 6,
+    fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }),
+  },
+  markdownInlineCode: {
+    backgroundColor: 'rgba(0, 0, 0, 0.08)',
+    paddingHorizontal: 4,
+    borderRadius: 4,
+    fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }),
+  },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -822,6 +1290,15 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
     gap: 8,
+  },
+  pasteButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#E7F2F3',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 4,
   },
   input: {
     flex: 1,
