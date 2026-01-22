@@ -2,7 +2,6 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { CardStyleInterpolators } from '@react-navigation/stack';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
 
@@ -25,11 +24,10 @@ if (typeof ErrorUtils !== 'undefined') {
 }
 
 // 捕获未处理的Promise rejection（React Native环境）
-if (typeof global !== 'undefined' && global.HermesInternal) {
-  // Hermes引擎环境
-  const originalPromiseRejectionTracker = (global as any).HermesInternal?.enablePromiseRejectionTracker;
-  if (originalPromiseRejectionTracker) {
-    (global as any).HermesInternal.enablePromiseRejectionTracker({
+if (typeof global !== 'undefined') {
+  const hermesInternal = (global as any).HermesInternal;
+  if (hermesInternal?.enablePromiseRejectionTracker) {
+    hermesInternal.enablePromiseRejectionTracker({
       allRejections: true,
     });
   }
@@ -64,21 +62,8 @@ export default function RootLayout() {
             name="(tabs)" 
             options={{ 
               headerShown: false,
-              cardStyleInterpolator: ({ current, layouts }) => {
-                // 当从聊天页面返回时，列表页从下方滑入
-                return {
-                  cardStyle: {
-                    transform: [
-                      {
-                        translateY: current.progress.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [layouts.screen.height, 0],
-                        }),
-                      },
-                    ],
-                  },
-                };
-              },
+              // 注意：Expo Router 的 Stack 可能不支持 cardStyleInterpolator
+              // 如果需要自定义动画，可能需要使用其他方式
             }} 
           />
         <Stack.Screen
@@ -87,70 +72,9 @@ export default function RootLayout() {
             headerShown: false,
             header: () => null,
             presentation: 'card',
-            tabBarStyle: { display: 'none' },
             navigationBarHidden: true,
-            cardStyleInterpolator: ({ current, next, layouts }) => {
-              // 判断是否是返回操作（next存在且progress小于current）
-              const isGoingBack = next && next.progress < current.progress;
-              
-              if (isGoingBack) {
-                // 返回时：当前屏幕向右滑出
-                return {
-                  cardStyle: {
-                    transform: [
-                      {
-                        translateX: current.progress.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [0, layouts.screen.width],
-                        }),
-                      },
-                    ],
-                  },
-                  overlayStyle: {
-                    opacity: current.progress.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [0.5, 0],
-                    }),
-                  },
-                };
-              } else {
-                // 前进时：从右侧滑入
-                return {
-                  cardStyle: {
-                    transform: [
-                      {
-                        translateX: current.progress.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [layouts.screen.width, 0],
-                        }),
-                      },
-                    ],
-                  },
-                  overlayStyle: {
-                    opacity: current.progress.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [0, 0.5],
-                    }),
-                  },
-                };
-              }
-            },
-            gestureDirection: 'horizontal',
-            gestureEnabled: true,
-            transitionSpec: {
-              open: {
-                animation: 'timing',
-                config: {
-                  duration: 300,
-                },
-              },
-              close: {
-                animation: 'timing',
-                config: {
-                  duration: 300,
-                },
-              },
-            },
+            // 注意：Expo Router 的 Stack 可能不支持 cardStyleInterpolator 和 transitionSpec
+            // 如果需要自定义动画，可能需要使用其他方式或库
           }}
         />
         <Stack.Screen
@@ -158,12 +82,32 @@ export default function RootLayout() {
           options={{
             headerShown: false,
             presentation: 'card',
-            tabBarStyle: { display: 'none' },
             navigationBarHidden: true,
           }}
         />
         <Stack.Screen
           name="search"
+          options={{
+            headerShown: false,
+            presentation: 'card',
+          }}
+        />
+        <Stack.Screen
+          name="note/list"
+          options={{
+            headerShown: false,
+            presentation: 'card',
+          }}
+        />
+        <Stack.Screen
+          name="note/editor"
+          options={{
+            headerShown: false,
+            presentation: 'card',
+          }}
+        />
+        <Stack.Screen
+          name="post/editor"
           options={{
             headerShown: false,
             presentation: 'card',

@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 
 /**
  * API配置管理
@@ -21,18 +22,93 @@ function getApiBaseUrl(): string {
   if (!__DEV__) {
     return 'https://your-production-api.com/api';
   }
-  
-  // 开发环境：根据平台选择
-  if (Platform.OS === 'ios') {
-    return 'http://localhost:3000/api';  // iOS模拟器
-  } else {
-    return 'http://10.0.2.2:3000/api';   // Android模拟器
+
+  // 允许通过环境变量强制覆盖（推荐，最稳定）
+  // 例如：EXPO_PUBLIC_API_BASE_URL=http://192.168.1.100:3000/api
+  const overridden = process.env.EXPO_PUBLIC_API_BASE_URL;
+  if (overridden && overridden.trim()) {
+    return overridden.trim();
   }
+
+  // 开发环境：尽量自动推断“运行 Metro 的电脑 IP”
+  // hostUri 形如：192.168.1.5:8081
+  const hostUri =
+    (Constants.expoConfig as any)?.hostUri ??
+    (Constants as any)?.manifest2?.extra?.expoClient?.hostUri ??
+    (Constants as any)?.manifest?.hostUri;
+
+  if (typeof hostUri === 'string' && hostUri.length > 0) {
+    const host = hostUri.split(':')[0]?.trim();
+    if (host) {
+      return `http://${host}:3000/api`;
+    }
+  }
+
+  // 兜底：根据平台选择（模拟器场景）
+  if (Platform.OS === 'ios') return 'http://localhost:3000/api'; // iOS模拟器
+  return 'http://10.0.2.2:3000/api'; // Android模拟器
 }
 
 export const API_CONFIG = {
   BASE_URL: getApiBaseUrl(),
 };
+
+/**
+ * 检查后端服务器连接状态
+ * @returns Promise<boolean> 连接是否正常
+ */
+export async function checkBackendConnection(): Promise<boolean> {
+  const startTime = Date.now();
+  try {
+    // 获取健康检查URL（去掉/api后缀，因为健康检查在根路径）
+    const baseUrl = API_CONFIG.BASE_URL.replace('/api', '');
+    const healthUrl = `${baseUrl}/health`;
+    
+    console.log(`[后端连接检查] 开始检查 - URL: ${healthUrl}`);
+    
+    const response = await fetch(healthUrl, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      // 设置较短的超时时间，避免等待太久
+      signal: AbortSignal.timeout(5000),
+    });
+    
+    const elapsed = Date.now() - startTime;
+    
+    if (response.ok) {
+      const data = await response.json();
+      console.log(`[后端连接检查] ✅ 连接成功 (${elapsed}ms) - 状态:`, data);
+      return true;
+    } else {
+      console.warn(`[后端连接检查] ⚠️ 连接异常 (${elapsed}ms) - 状态码: ${response.status}`);
+      return false;
+    }
+  } catch (error: any) {
+    const elapsed = Date.now() - startTime;
+    console.error(`[后端连接检查] ❌ 连接失败 (${elapsed}ms):`, error);
+    console.error(`[后端连接检查] 错误详情:`, {
+      message: error.message,
+      name: error.name,
+      stack: error.stack?.substring(0, 200),
+    });
+    return false;
+  }
+}
+
+/**
+ * 获取后端API基础URL（带日志）
+ */
+export function getApiBaseUrlWithLog(): string {
+  const url = API_CONFIG.BASE_URL;
+  console.log(`[API配置] 后端API地址: ${url}`);
+  console.log(`[API配置] 开发模式: ${__DEV__}`);
+  if (__DEV__) {
+    console.log(`[API配置] 平台: ${Platform.OS}`);
+  }
+  return url;
+}
 
 // 通义千问API配置
 export const QIANWEN_CONFIG = {

@@ -1,6 +1,8 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
 import { Image } from 'expo-image';
+import { StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HapticTab } from '@/components/haptic-tab';
 import { Colors } from '@/constants/theme';
@@ -8,6 +10,15 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
+  const insets = useSafeAreaInsets();
+
+  const isDark = colorScheme === 'dark';
+  const tabBarBackgroundColor = isDark
+    ? 'rgba(15, 23, 42, 0.92)'
+    : 'rgba(255, 255, 255, 0.96)';
+  const tabBarBorderColor = isDark
+    ? 'rgba(148, 163, 184, 0.5)'
+    : 'rgba(148, 163, 184, 0.2)';
 
   return (
     <Tabs
@@ -15,6 +26,18 @@ export default function TabLayout() {
         tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
         headerShown: false,
         tabBarButton: HapticTab,
+        tabBarStyle: [
+          styles.tabBar,
+          {
+            backgroundColor: tabBarBackgroundColor,
+            borderColor: tabBarBorderColor,
+            paddingBottom: insets.bottom || 10,
+            height: 60 + (insets.bottom || 10),
+          },
+        ],
+        tabBarLabelStyle: styles.tabBarLabel,
+        tabBarItemStyle: styles.tabBarItem,
+        tabBarHideOnKeyboard: true,
       }}>
       <Tabs.Screen
         name="index"
@@ -93,3 +116,30 @@ export default function TabLayout() {
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  tabBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    paddingTop: 6,
+    borderWidth: 1,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  tabBarLabel: {
+    fontSize: 11,
+    marginBottom: 4,
+  },
+  tabBarItem: {
+    paddingVertical: 0,
+  },
+});

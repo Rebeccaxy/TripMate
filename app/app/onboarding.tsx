@@ -8,45 +8,27 @@ const { width, height } = Dimensions.get('window');
 
 export default function OnboardingScreen() {
   const router = useRouter();
-  const [language, setLanguage] = useState<'English' | '中文'>('English');
 
   const handleGetStarted = () => {
-    // 触觉反馈
+    // Haptic feedback
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     
-    // 跳转到登录页
+    // Navigate to login page
     router.replace('/(auth)/login');
   };
 
-  const toggleLanguage = () => {
-    setLanguage(language === 'English' ? '中文' : 'English');
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
-
-  const titleText = language === 'English' 
-    ? 'Ready to explore beyond boundaries?'
-    : '准备好探索无限边界了吗？';
-  
-  const buttonText = language === 'English'
-    ? 'Your Journey Starts Here'
-    : '你的旅程从这里开始';
+  const titleText = 'Ready to explore beyond boundaries?';
+  const buttonText = 'Your Journey Starts Here';
 
   return (
     <View style={styles.container}>
       {/* 背景图片 */}
       <ImageBackground
-        source={require('@/assets/images/onboarding/Get Started-BG.png')}
+        // 去掉文件名空格，避免在某些环境下加载失败
+        source={require('@/assets/images/onboarding/get-started-bg.png')}
         style={styles.backgroundImage}
         resizeMode="cover">
         
-        {/* 右上角语言选择器 */}
-        <TouchableOpacity 
-          style={styles.languageSelector}
-          onPress={toggleLanguage}
-          activeOpacity={0.7}>
-          <Text style={styles.languageText}>{language}</Text>
-          <Text style={styles.languageArrow}>▼</Text>
-        </TouchableOpacity>
 
         {/* Logo - 在底部卡片正上方，距离顶部30% */}
         <View style={styles.logoContainer}>
@@ -88,24 +70,6 @@ const styles = StyleSheet.create({
     flex: 1,
     width: '100%',
     height: '100%',
-  },
-  languageSelector: {
-    position: 'absolute',
-    top: 50,
-    right: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    // 移除背景和圆角
-  },
-  languageText: {
-    fontSize: 14,
-    color: '#FFFFFF', // 改为白色
-    fontWeight: '500',
-  },
-  languageArrow: {
-    fontSize: 10,
-    color: '#FFFFFF', // 改为白色
   },
   logoContainer: {
     position: 'absolute',

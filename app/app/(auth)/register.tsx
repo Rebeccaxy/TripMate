@@ -21,39 +21,33 @@ const { width, height } = Dimensions.get('window');
 
 export default function RegisterScreen() {
   const router = useRouter();
-  const [language, setLanguage] = useState<'English' | '中文'>('English');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const toggleLanguage = () => {
-    setLanguage(language === 'English' ? '中文' : 'English');
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
-
   const handleRegister = async () => {
     if (!name || !email || !password || !confirmPassword) {
       Alert.alert(
-        language === 'English' ? 'Alert' : '提示',
-        language === 'English' ? 'Please fill in all fields' : '请填写所有字段'
+        'Alert',
+        'Please fill in all fields'
       );
       return;
     }
 
     if (password !== confirmPassword) {
       Alert.alert(
-        language === 'English' ? 'Alert' : '提示',
-        language === 'English' ? 'Passwords do not match' : '两次输入的密码不一致'
+        'Alert',
+        'Passwords do not match'
       );
       return;
     }
 
     if (password.length < 6) {
       Alert.alert(
-        language === 'English' ? 'Alert' : '提示',
-        language === 'English' ? 'Password must be at least 6 characters' : '密码长度至少为6位'
+        'Alert',
+        'Password must be at least 6 characters'
       );
       return;
     }
@@ -65,29 +59,29 @@ export default function RegisterScreen() {
       const result = await registerUser(name, email, password);
 
       if (result.success) {
-        // 注册成功后自动登录
+        // Auto login after successful registration
         try {
           const loginResult = await loginUser(email, password);
           setIsLoading(false);
           
           if (loginResult.success) {
             Alert.alert(
-              language === 'English' ? 'Success' : '成功',
-              language === 'English' ? 'Registration successful!' : '注册成功！',
+              'Success',
+              'Registration successful!',
               [
                 {
-                  text: language === 'English' ? 'OK' : '确定',
+                  text: 'OK',
                   onPress: () => router.replace('/(tabs)'),
                 },
               ]
             );
           } else {
             Alert.alert(
-              language === 'English' ? 'Success' : '成功',
-              language === 'English' ? 'Registration successful! Please login.' : '注册成功！请登录。',
+              'Success',
+              'Registration successful! Please login.',
               [
                 {
-                  text: language === 'English' ? 'OK' : '确定',
+                  text: 'OK',
                   onPress: () => router.back(),
                 },
               ]
@@ -96,11 +90,11 @@ export default function RegisterScreen() {
         } catch (loginError) {
           setIsLoading(false);
           Alert.alert(
-            language === 'English' ? 'Success' : '成功',
-            language === 'English' ? 'Registration successful! Please login manually.' : '注册成功！请手动登录。',
+            'Success',
+            'Registration successful! Please login manually.',
             [
               {
-                text: language === 'English' ? 'OK' : '确定',
+                text: 'OK',
                 onPress: () => router.back(),
               },
             ]
@@ -109,15 +103,15 @@ export default function RegisterScreen() {
       } else {
         setIsLoading(false);
         Alert.alert(
-          language === 'English' ? 'Error' : '错误',
+          'Error',
           result.message
         );
       }
     } catch (error) {
       setIsLoading(false);
       Alert.alert(
-        language === 'English' ? 'Error' : '错误',
-        language === 'English' ? 'Registration failed. Please try again.' : '注册失败，请稍后重试。'
+        'Error',
+        'Registration failed. Please try again.'
       );
     }
   };
@@ -129,46 +123,37 @@ export default function RegisterScreen() {
   const handleSocialLogin = (provider: 'google' | 'apple' | 'facebook') => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     
-    // 开发模式：点击苹果图标直接跳转到主界面
+    // Development mode: Click Apple icon to jump directly to main screen
     if (provider === 'apple') {
       router.replace('/(tabs)');
       return;
     }
     
-    // TODO: 实现第三方登录逻辑
+    // TODO: Implement third-party login logic
     console.log(`${provider} register`);
   };
 
-  // 多语言文本
-  const titleMain = language === 'English' ? "Let's" : "让我们";
-  const titleSub = language === 'English' ? "Travel you in." : "开始您的旅程。";
-  const subtitle = language === 'English'
-    ? 'Create Your Account and Start Your Journey'
-    : '创建您的账号，开启您的旅程';
-  const namePlaceholder = language === 'English' ? 'Full Name' : '姓名';
-  const emailPlaceholder = language === 'English' ? 'Email' : '邮箱';
-  const passwordPlaceholder = language === 'English' ? 'Password (at least 6 characters)' : '密码（至少6位）';
-  const confirmPasswordPlaceholder = language === 'English' ? 'Confirm Password' : '确认密码';
-  const registerButton = language === 'English' ? 'Sign Up' : '注册';
-  const orSignUpWith = language === 'English' ? 'or sign up with' : '或使用以下方式注册';
-  const hasAccount = language === 'English' ? "Already have an account?" : '已有账号？';
-  const signIn = language === 'English' ? 'Sign In' : '登录';
+  // Text
+  const titleMain = "Let's";
+  const titleSub = "Travel you in.";
+  const subtitle = 'Create Your Account and Start Your Journey';
+  const namePlaceholder = 'Full Name';
+  const emailPlaceholder = 'Email';
+  const passwordPlaceholder = 'Password (at least 6 characters)';
+  const confirmPasswordPlaceholder = 'Confirm Password';
+  const registerButton = 'Sign Up';
+  const orSignUpWith = 'or sign up with';
+  const hasAccount = "Already have an account?";
+  const signIn = 'Sign In';
 
   return (
     <View style={styles.container}>
       <ImageBackground
-        source={require('@/assets/images/auth/Sign In-BG.png')}
+        // 去掉文件名空格，避免加载失败
+        source={require('@/assets/images/auth/sign-in-bg.png')}
         style={styles.backgroundImage}
         resizeMode="cover">
         
-        {/* 右上角语言选择器 */}
-        <TouchableOpacity
-          style={styles.languageSelector}
-          onPress={toggleLanguage}
-          activeOpacity={0.7}>
-          <Text style={styles.languageText}>{language}</Text>
-          <Text style={styles.languageArrow}>▼</Text>
-        </TouchableOpacity>
 
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -246,7 +231,7 @@ export default function RegisterScreen() {
                 disabled={isLoading}
                 activeOpacity={0.8}>
                 <Text style={styles.registerButtonText}>
-                  {isLoading ? (language === 'English' ? 'Signing up...' : '注册中...') : registerButton}
+                  {isLoading ? 'Signing up...' : registerButton}
                 </Text>
               </TouchableOpacity>
 
@@ -315,24 +300,6 @@ const styles = StyleSheet.create({
     flex: 1,
     width: '100%',
     height: '100%',
-  },
-  languageSelector: {
-    position: 'absolute',
-    top: 50,
-    right: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    zIndex: 10,
-  },
-  languageText: {
-    fontSize: 14,
-    color: '#FFFFFF',
-    fontWeight: '500',
-  },
-  languageArrow: {
-    fontSize: 10,
-    color: '#FFFFFF',
   },
   keyboardView: {
     flex: 1,

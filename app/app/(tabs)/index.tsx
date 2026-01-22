@@ -1,22 +1,48 @@
 import { Image } from 'expo-image';
-import { StyleSheet, ImageBackground, ScrollView, View, Text, TextInput, FlatList, TouchableOpacity } from 'react-native';
-import { useEffect, useState } from 'react';
+import { StyleSheet, ImageBackground, ScrollView, View, Text, TextInput, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect, useRouter } from 'expo-router';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 
 import { getCurrentUser, type User } from '@/services/authService';
+import {
+  getPopularPlaces,
+  getNearestPlaces,
+  type Place,
+} from '@/services/communityService';
+import {
+  toggleLikePlace as toggleLikePlaceService,
+  toggleFavoritePlace as toggleFavoritePlaceService,
+  getLikedPlaceIds,
+  getFavoritedPlaceIds,
+} from '@/services/userEngagementService';
 
 export default function HomeScreen() {
+  const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [displayNameOverride, setDisplayNameOverride] = useState<string | null>(null);
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [favorites, setFavorites] = useState<Record<string, boolean>>({});
   const [likes, setLikes] = useState<Record<string, boolean>>({});
+  const [popularPlaces, setPopularPlaces] = useState<Place[]>([]);
+  const [nearestPlaces, setNearestPlaces] = useState<Place[]>([]);
+  const [loadingPlaces, setLoadingPlaces] = useState(true);
 
   useEffect(() => {
     const loadUser = async () => {
       try {
         const currentUser = await getCurrentUser();
         setUser(currentUser);
+        const [name, uri] = await Promise.all([
+          AsyncStorage.getItem('@tripMate:displayName'),
+          AsyncStorage.getItem('@tripMate:avatarUri'),
+        ]);
+        setDisplayNameOverride(name);
+        setAvatarUri(uri);
       } catch (error) {
-        console.error('获取用户信息失败:', error);
+        console.error('Failed to get user info:', error);
       } finally {
         setLoading(false);
       }
@@ -24,71 +50,133 @@ export default function HomeScreen() {
     loadUser();
   }, []);
 
-  const displayName = user?.name || 'TripMate';
+  // Sync latest nickname and avatar when returning from Account settings page
+  useFocusEffect(
+    useCallback(() => {
+      const syncFromStorage = async () => {
+        try {
+          const [name, uri] = await Promise.all([
+            AsyncStorage.getItem('@tripMate:displayName'),
+            AsyncStorage.getItem('@tripMate:avatarUri'),
+          ]);
+          setDisplayNameOverride(name);
+          setAvatarUri(uri);
+        } catch (e) {
+          console.error('Failed to refresh home page user info:', e);
+        }
+      };
+      syncFromStorage();
+    }, [])
+  );
+
+  // Load places data and like/favorite status
+  useEffect(() => {
+    const loadPlaces = async () => {
+      try {
+        setLoadingPlaces(true);
+        const [popular, nearest, likedIds, favoritedIds] = await Promise.all([
+          getPopularPlaces(),
+          getNearestPlaces(),
+          getLikedPlaceIds(),
+          getFavoritedPlaceIds(),
+        ]);
+        setPopularPlaces(popular);
+        setNearestPlaces(nearest);
+        
+        // Initialize like and favorite status
+        const likesMap: Record<string, boolean> = {};
+        const favoritesMap: Record<string, boolean> = {};
+        likedIds.forEach(id => { likesMap[id] = true; });
+        favoritedIds.forEach(id => { favoritesMap[id] = true; });
+        setLikes(likesMap);
+        setFavorites(favoritesMap);
+      } catch (error) {
+        console.error('Failed to load places data:', error);
+      } finally {
+        setLoadingPlaces(false);
+      }
+    };
+    loadPlaces();
+  }, []);
+
+
+  // 从 Account 返回时刷新点赞收藏状态
+  useFocusEffect(
+    useCallback(() => {
+      const syncEngagement = async () => {
+        try {
+          const [likedIds, favoritedIds] = await Promise.all([
+            getLikedPlaceIds(),
+            getFavoritedPlaceIds(),
+          ]);
+          const likesMap: Record<string, boolean> = {};
+          const favoritesMap: Record<string, boolean> = {};
+          likedIds.forEach(id => { likesMap[id] = true; });
+          favoritedIds.forEach(id => { favoritesMap[id] = true; });
+          setLikes(likesMap);
+          setFavorites(favoritesMap);
+        } catch (error) {
+          console.error('Failed to sync like/favorite status:', error);
+        }
+      };
+      syncEngagement();
+    }, [])
+  );
+
+  const displayName = displayNameOverride || user?.name || 'TripMate';
+  const initials = (displayName || 'T').trim().charAt(0).toUpperCase();
   const points = 3000;
 
-  // Popular Places 数据
-  const popularPlaces = [
-    { 
-      id: '1', 
-      name: 'Mount Bromo', 
-      description: 'Volcano in East Java',
-      duration: '3D2N',
-      image: require('@/assets/images/popular-places/PP1.png') 
-    },
-    { 
-      id: '2', 
-      name: 'Labengki Sombori', 
-      description: 'Islands in Sulawesi',
-      duration: '3D2N',
-      image: require('@/assets/images/popular-places/PP2.png') 
-    },
-    { 
-      id: '3', 
-      name: 'Place Name', 
-      description: 'Place Description',
-      duration: '3D2N',
-      image: require('@/assets/images/popular-places/PP3.png') 
-    },
-  ];
-
-  const toggleFavorite = (placeId: string) => {
-    setFavorites(prev => ({
-      ...prev,
-      [placeId]: !prev[placeId]
-    }));
+  const handleToggleFavorite = async (placeId: string, e: any) => {
+    e?.stopPropagation(); // 阻止事件冒泡
+    try {
+      const newState = await toggleFavoritePlaceService(placeId);
+      setFavorites(prev => ({
+        ...prev,
+        [placeId]: newState
+      }));
+    } catch (error) {
+      console.error('Failed to toggle favorite status:', error);
+    }
   };
 
-  const toggleLike = (placeId: string) => {
-    setLikes(prev => ({
-      ...prev,
-      [placeId]: !prev[placeId]
-    }));
+  const handleToggleLike = async (placeId: string, e: any) => {
+    e?.stopPropagation(); // 阻止事件冒泡
+    try {
+      const newState = await toggleLikePlaceService(placeId);
+      setLikes(prev => ({
+        ...prev,
+        [placeId]: newState
+      }));
+    } catch (error) {
+      console.error('Failed to toggle like status:', error);
+    }
   };
 
-  const nearestPlaces = [
-    { 
-      id: '1', 
-      name: 'Bajra Sandhi Monument', 
-      location: 'Panjer, South Denpasar',
-      distance: '3.3 Km',
-      image: require('@/assets/images/nearest-places/NP1.png')
-    },
-    { 
-      id: '2', 
-      name: 'Sanur Beach', 
-      location: 'Sanur, South Denpasar',
-      distance: '10.4 km',
-      image: require('@/assets/images/nearest-places/NP2.png')
-    },
-    { 
-      id: '3', 
-      name: 'Mertasari Beach', 
-      location: 'Sanur, South Denpasar',
-      distance: '3.3 km',
-      image: require('@/assets/images/nearest-places/NP3.png')
-    },
-  ];
+  const handlePlacePress = (placeId: string) => {
+    router.push(`/place/${placeId}` as any);
+  };
+
+  const handleSearchPress = () => {
+    router.push('/search');
+  };
+
+  // 获取图片源（处理字符串路径和 require 返回的 number）
+  const getImageSource = (image: string | number) => {
+    if (typeof image === 'number') {
+      return image;
+    }
+    // 如果是字符串，尝试映射到本地资源
+    const imageMap: Record<string, any> = {
+      'PP1.png': require('@/assets/images/popular-places/PP1.png'),
+      'PP2.png': require('@/assets/images/popular-places/PP2.png'),
+      'PP3.png': require('@/assets/images/popular-places/PP3.png'),
+      'NP1.png': require('@/assets/images/nearest-places/NP1.png'),
+      'NP2.png': require('@/assets/images/nearest-places/NP2.png'),
+      'NP3.png': require('@/assets/images/nearest-places/NP3.png'),
+    };
+    return imageMap[image] || require('@/assets/images/popular-places/PP1.png');
+  };
 
   return (
     <ImageBackground
@@ -117,123 +205,172 @@ export default function HomeScreen() {
           </View>
           {/* 右侧：圆形头像 */}
           <View style={styles.avatarContainer}>
-            <Image
-              source={require('@/assets/images/avatars/default-avatar.png')}
-              style={styles.avatar}
-              contentFit="cover"
-            />
+            {avatarUri ? (
+              <Image
+                source={{ uri: avatarUri }}
+                style={styles.avatar}
+                contentFit="cover"
+              />
+            ) : (
+              <View style={styles.avatarFallbackCircle}>
+                <Text style={styles.avatarFallbackText}>{initials}</Text>
+              </View>
+            )}
           </View>
         </View>
 
         {/* 搜索框 */}
-        <View style={styles.searchContainer}>
+        <TouchableOpacity 
+          style={styles.searchContainer}
+          onPress={handleSearchPress}
+          activeOpacity={0.8}>
           <Image
             source={require('@/assets/images/icons/search-icon.png')}
             style={styles.searchIcon}
             contentFit="contain"
           />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Where to go?"
-            placeholderTextColor="#999"
-            editable={false}
-          />
-        </View>
+          <Text style={styles.searchInput}>Where to go?</Text>
+        </TouchableOpacity>
 
         {/* Popular Places 板块 */}
         <View style={styles.sectionContainer}>
           <Text style={styles.sectionTitle}>Popular Places</Text>
-          <FlatList
-            data={popularPlaces}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <TouchableOpacity style={styles.popularCard}>
-                <View style={styles.popularCardImageContainer}>
-                  <Image
-                    source={item.image}
-                    style={styles.popularCardImage}
-                    contentFit="cover"
-                  />
-                  {/* 右上角按钮 */}
-                  <View style={styles.cardActionButtons}>
-                    <TouchableOpacity
-                      style={styles.cardActionButton}
-                      onPress={() => toggleLike(item.id)}
-                      activeOpacity={0.7}>
-                      <Image
-                        source={likes[item.id] 
-                          ? require('@/assets/images/icons/star-select.png')
-                          : require('@/assets/images/icons/star.png')
-                        }
-                        style={styles.cardActionIcon}
-                        contentFit="contain"
-                      />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.cardActionButton}
-                      onPress={() => toggleFavorite(item.id)}
-                      activeOpacity={0.7}>
-                      <Image
-                        source={favorites[item.id]
-                          ? require('@/assets/images/icons/heart-select.png')
-                          : require('@/assets/images/icons/heart.png')
-                        }
-                        style={styles.cardActionIcon}
-                        contentFit="contain"
-                      />
-                    </TouchableOpacity>
+          {loadingPlaces ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color="#007A8C" />
+            </View>
+          ) : (
+            <FlatList
+              data={popularPlaces}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <TouchableOpacity 
+                  style={styles.popularCard}
+                  onPress={() => handlePlacePress(item.id)}
+                  activeOpacity={0.9}>
+                  <View style={styles.popularCardImageContainer}>
+                    <Image
+                      source={getImageSource(item.coverImage)}
+                      style={styles.popularCardImage}
+                      contentFit="cover"
+                    />
+                    {/* 右上角按钮 */}
+                    <View style={styles.cardActionButtons}>
+                      <TouchableOpacity
+                        style={styles.cardActionButton}
+                        onPress={(e) => handleToggleLike(item.id, e)}
+                        activeOpacity={0.7}>
+                        <Image
+                          source={likes[item.id] 
+                            ? require('@/assets/images/icons/heart-select.png')
+                            : require('@/assets/images/icons/heart.png')
+                          }
+                          style={styles.cardActionIcon}
+                          contentFit="contain"
+                        />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.cardActionButton}
+                        onPress={(e) => handleToggleFavorite(item.id, e)}
+                        activeOpacity={0.7}>
+                        <Image
+                          source={favorites[item.id]
+                            ? require('@/assets/images/icons/star-select.png')
+                            : require('@/assets/images/icons/star.png')
+                          }
+                          style={styles.cardActionIcon}
+                          contentFit="contain"
+                        />
+                      </TouchableOpacity>
+                    </View>
                   </View>
-                </View>
-                <View style={styles.popularCardContent}>
-                  <Text style={styles.popularCardName} numberOfLines={1} ellipsizeMode="tail">
-                    {item.name}
-                  </Text>
-                  <Text style={styles.popularCardDescription} numberOfLines={2} ellipsizeMode="tail">
-                    {item.description}
-                  </Text>
-                  {/* 右下角行程标注 */}
-                  <View style={styles.durationBadge}>
-                    <Text style={styles.durationText}>{item.duration}</Text>
+                  <View style={styles.popularCardContent}>
+                    <Text style={styles.popularCardName} numberOfLines={1} ellipsizeMode="tail">
+                      {item.name}
+                    </Text>
+                    <Text style={styles.popularCardDescription} numberOfLines={2} ellipsizeMode="tail">
+                      {item.shortDesc}
+                    </Text>
+                    {/* 显示标签 */}
+                    {item.tags.length > 0 && (
+                      <View style={styles.tagsContainer}>
+                        {item.tags.slice(0, 2).map((tag, index) => (
+                          <View key={index} style={styles.tagBadge}>
+                            <Text style={styles.tagText}>{tag}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
                   </View>
-                </View>
-              </TouchableOpacity>
-            )}
-            contentContainerStyle={styles.popularList}
-          />
+                </TouchableOpacity>
+              )}
+              contentContainerStyle={styles.popularList}
+            />
+          )}
         </View>
 
         {/* Nearest Places 板块 */}
         <View style={[styles.sectionContainer, styles.nearestSectionContainer]}>
-          <Text style={styles.sectionTitle}>Nearest Places</Text>
-          {nearestPlaces.map((place) => (
-            <TouchableOpacity key={place.id} style={styles.nearestCard}>
-              {/* 左侧图片 */}
-              <Image
-                source={place.image}
-                style={styles.nearestCardImage}
-                contentFit="cover"
-              />
-              {/* 右侧内容 */}
-              <View style={styles.nearestCardContent}>
-                <Text style={styles.nearestCardName}>{place.name}</Text>
-                <View style={styles.nearestCardLocation}>
-                  <Image
-                    source={require('@/assets/images/icons/Location.png')}
-                    style={styles.locationIcon}
-                    contentFit="contain"
-                  />
-                  <Text style={styles.nearestCardLocationText}>{place.location}</Text>
-                </View>
-                <Text style={styles.nearestCardDistance}>{place.distance}</Text>
-              </View>
-              {/* Route 按钮 */}
-              <TouchableOpacity style={styles.routeButton}>
-                <Text style={styles.routeButtonText}>Route</Text>
-              </TouchableOpacity>
+          <View style={styles.nearestSectionHeader}>
+            <Text style={styles.sectionTitle}>Nearest Places</Text>
+            <TouchableOpacity
+              style={styles.writePostButton}
+              onPress={() => router.push('/post/editor')}
+              activeOpacity={0.8}>
+              <MaterialIcons name="add" size={20} color="#FFFFFF" />
+              <Text style={styles.writePostButtonText}>Post</Text>
             </TouchableOpacity>
-          ))}
+          </View>
+          {loadingPlaces ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color="#007A8C" />
+            </View>
+          ) : (
+            nearestPlaces.map((place) => (
+              <TouchableOpacity 
+                key={place.id} 
+                style={styles.nearestCard}
+                onPress={() => handlePlacePress(place.id)}
+                activeOpacity={0.9}>
+                {/* 左侧图片 */}
+                <Image
+                  source={getImageSource(place.coverImage)}
+                  style={styles.nearestCardImage}
+                  contentFit="cover"
+                />
+                {/* 右侧内容 */}
+                <View style={styles.nearestCardContent}>
+                  <Text style={styles.nearestCardName}>{place.name}</Text>
+                  <View style={styles.nearestCardLocation}>
+                    <Image
+                      source={require('@/assets/images/icons/Location.png')}
+                      style={styles.locationIcon}
+                      contentFit="contain"
+                    />
+                    <Text style={styles.nearestCardLocationText}>
+                      {place.city ? `${place.city}, ${place.country}` : place.country}
+                    </Text>
+                  </View>
+                  {place.geo && (
+                    <Text style={styles.nearestCardDistance}>
+                      {place.stats.likeCount} likes • {place.stats.favoriteCount} favorites
+                    </Text>
+                  )}
+                </View>
+                {/* Route 按钮 */}
+                <TouchableOpacity 
+                  style={styles.routeButton}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    handlePlacePress(place.id);
+                  }}>
+                  <Text style={styles.routeButtonText}>Route</Text>
+                </TouchableOpacity>
+              </TouchableOpacity>
+            ))
+          )}
         </View>
       </ScrollView>
     </ImageBackground>
@@ -299,6 +436,19 @@ const styles = StyleSheet.create({
     borderRadius: 32,
     backgroundColor: '#E0E0E0',
   },
+  avatarFallbackCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarFallbackText: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#007A8C',
+  },
   searchContainer: {
     marginTop: 0,  // 增加与头像区域的间距
     flexDirection: 'row',
@@ -323,7 +473,28 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     fontSize: 16,
-    color: '#000',
+    color: '#999',
+  },
+  loadingContainer: {
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tagsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 4,
+    gap: 4,
+  },
+  tagBadge: {
+    backgroundColor: '#F0F0F0',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  tagText: {
+    fontSize: 10,
+    color: '#666',
   },
   sectionContainer: {
     marginBottom: 32,
@@ -337,6 +508,26 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#000',
     marginBottom: 16,
+  },
+  nearestSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  writePostButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#007A8C',
+  },
+  writePostButtonText: {
+    fontSize: 14,
+    color: '#FFFFFF',
+    fontWeight: '600',
   },
   popularList: {
     paddingRight: 20,
@@ -470,7 +661,7 @@ const styles = StyleSheet.create({
     color: '#999',
   },
   routeButton: {
-    backgroundColor: '#336749',
+    backgroundColor: '#007A8C',
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 8,
@@ -480,5 +671,156 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#FFFFFF',
+  },
+  postsSectionContainer: {
+    marginTop: 24,
+    paddingBottom: 24,
+  },
+  postsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  createPostButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#007A8C',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  postTabs: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+  },
+  postTab: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+  },
+  postTabActive: {
+    backgroundColor: '#007A8C',
+    borderColor: '#007A8C',
+  },
+  postTabText: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+  postTabTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+  emptyPostsContainer: {
+    padding: 32,
+    alignItems: 'center',
+  },
+  emptyPostsText: {
+    fontSize: 16,
+    color: '#666',
+    marginBottom: 8,
+  },
+  emptyPostsSubtext: {
+    fontSize: 14,
+    color: '#999',
+  },
+  postsList: {
+    gap: 12,
+  },
+  postCard: {
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  postCardContent: {
+    padding: 16,
+  },
+  postHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  postHeaderLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginRight: 8,
+  },
+  postTitle: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  postCategoryBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: '#E0F2F1',
+  },
+  postCategoryText: {
+    fontSize: 10,
+    color: '#007A8C',
+    fontWeight: '600',
+  },
+  postDeleteButton: {
+    padding: 4,
+  },
+  postText: {
+    fontSize: 14,
+    color: '#4B5563',
+    lineHeight: 20,
+    marginBottom: 12,
+  },
+  postImagesContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12,
+  },
+  postImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 8,
+  },
+  postImageMore: {
+    width: 100,
+    height: 100,
+    borderRadius: 8,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  postImageMoreText: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '600',
+  },
+  postStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  postStatItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  postStatText: {
+    fontSize: 12,
+    color: '#666',
+  },
+  postTime: {
+    marginLeft: 'auto',
+    fontSize: 12,
+    color: '#999',
   },
 });

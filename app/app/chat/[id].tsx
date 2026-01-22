@@ -102,13 +102,21 @@ const getInitialMessages = (chatId: string): ChatMessage[] => {
 export default function ChatDetailScreen() {
   const router = useRouter();
   const navigation = useNavigation();
-  const { id, initialMessage } = useLocalSearchParams<{ id: string; initialMessage?: string }>();
+  const { id, initialMessage, context } = useLocalSearchParams<{
+    id: string;
+    initialMessage?: string;
+    context?: string;
+  }>();
   // 限制消息数组大小，避免内存溢出
   const MAX_MESSAGES_IN_MEMORY = 30;
-  const AI_RESPONSE_TIMEOUT_MS = 20000;
+  const AI_RESPONSE_TIMEOUT_MS = 120000; // 增加到120秒，给AI足够时间生成长回复
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [hasAutoReplied, setHasAutoReplied] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(true);
+  const [chatContext, setChatContext] = useState<{
+    itinerary?: any;
+    travelDNA?: any;
+  } | null>(null);
 
   // 加载消息历史
   useEffect(() => {
@@ -136,6 +144,16 @@ export default function ChatDetailScreen() {
           };
           setMessages([firstMessage]);
           await addMessageToChat(id, firstMessage);
+
+          // 解析并设置隐式上下文
+          if (context) {
+            try {
+              const parsedContext = JSON.parse(context);
+              setChatContext(parsedContext);
+            } catch (e) {
+              console.error('解析上下文失败:', e);
+            }
+          }
         } else {
           // 否则使用默认消息（仅用于演示的旧对话）
           const defaultMessages = getInitialMessages(id);
@@ -175,15 +193,23 @@ export default function ChatDetailScreen() {
   useEffect(() => {
     const loadChatInfo = async () => {
       if (initialMessage && id) {
-        // 创建新对话
+        // 创建新对话（标题会在 addConversation 中自动蒸馏）
         const newChat: ChatConversation = {
           id: id,
-          title: initialMessage.length > 30 ? initialMessage.substring(0, 30) + '...' : initialMessage,
+          title: initialMessage, // 原始标题，会在 addConversation 中蒸馏
           summary: initialMessage,
           updatedAt: formatUpdatedAt(new Date()),
         };
+        // 先设置临时标题用于显示
         setCurrentChat(newChat);
+        // 添加对话（会自动蒸馏标题）
         await addConversation(newChat);
+        // 重新加载以获取蒸馏后的标题
+        const conversations = await getAllConversations();
+        const updatedChat = conversations.find((c) => c.id === id);
+        if (updatedChat) {
+          setCurrentChat(updatedChat);
+        }
       }
     };
     loadChatInfo();
@@ -483,7 +509,7 @@ export default function ChatDetailScreen() {
           ]);
 
         let aiResponse = await withTimeout(
-          getAIResponse(messageText, effectiveId || ''),
+          getAIResponse(messageText, effectiveId || '', chatContext),
           AI_RESPONSE_TIMEOUT_MS
         );
         
@@ -494,12 +520,7 @@ export default function ChatDetailScreen() {
           console.log(`[诊断] 请求 #${currentRequestId} AI回复大小: ${responseSize} 字符 (${responseSizeKB} KB)`);
         }
         
-        // ⚠️ 如果响应过大，记录警告并截断
-        const MAX_RESPONSE_LENGTH = 2000; // 增加到2KB字符（约4KB内存）
-        if (responseSize > MAX_RESPONSE_LENGTH) {
-          console.warn(`[警告] 响应过大(${responseSize}字符)，截断到${MAX_RESPONSE_LENGTH}字符`);
-          aiResponse = aiResponse.substring(0, MAX_RESPONSE_LENGTH) + '\n\n[响应已截断，内容过长]';
-        }
+        // 不再截断响应，允许完整显示所有内容
         
         // 检查组件是否仍然挂载
         if (!id) {
@@ -639,7 +660,7 @@ export default function ChatDetailScreen() {
               ),
             ]);
 
-          let aiResponse = await withTimeout(getAIResponse(initialMessage, id), AI_RESPONSE_TIMEOUT_MS);
+          let aiResponse = await withTimeout(getAIResponse(initialMessage, id, chatContext), AI_RESPONSE_TIMEOUT_MS);
           
           // 🔴 关键诊断：检查响应大小
           const responseSize = aiResponse.length;
@@ -647,12 +668,7 @@ export default function ChatDetailScreen() {
             console.log(`[诊断] 自动回复响应大小: ${responseSize} 字符`);
           }
           
-          // 截断响应，避免内存溢出
-          const maxResponseLength = 2000; // 增加到2KB字符
-          if (aiResponse.length > maxResponseLength) {
-            console.warn(`[警告] 自动回复响应过长(${aiResponse.length}字符)，截断到${maxResponseLength}字符`);
-            aiResponse = aiResponse.substring(0, maxResponseLength) + '\n\n[响应已截断，内容过长]';
-          }
+          // 不再截断响应，允许完整显示所有内容
           
           // 移除加载消息，添加真实回复
           setMessages((prev) => {
@@ -754,12 +770,15 @@ export default function ChatDetailScreen() {
 
 
   const shouldRenderMarkdown = (text: string): boolean => {
-    // 简单兜底：过长或代码块太多时降级为纯文本，避免渲染耗时/内存爆
-    const maxMarkdownLength = 1800;
-    const maxCodeFenceCount = 6;
-    if (text.length > maxMarkdownLength) return false;
+    // 放宽限制，允许更长的 markdown 内容渲染
+    // 只在极端情况下（代码块过多）才降级为纯文本
+    const maxCodeFenceCount = 20; // 增加代码块限制
     const fenceCount = (text.match(/```/g) || []).length;
-    if (fenceCount > maxCodeFenceCount) return false;
+    if (fenceCount > maxCodeFenceCount) {
+      console.warn(`[Markdown] 代码块过多(${fenceCount})，降级为纯文本`);
+      return false;
+    }
+    // 不再限制文本长度，允许所有长度的 markdown 渲染
     return true;
   };
 
@@ -799,11 +818,20 @@ export default function ChatDetailScreen() {
               style={{
                 body: [styles.messageText, styles.markdownBody, { color: botTextColor }],
                 paragraph: styles.markdownParagraph,
+                heading1: [styles.markdownHeading, { fontSize: 20 }],
+                heading2: [styles.markdownHeading, { fontSize: 18 }],
+                heading3: [styles.markdownHeading, { fontSize: 16 }],
+                strong: { fontWeight: 'bold' },
+                em: { fontStyle: 'italic' },
                 code_block: styles.markdownCodeBlock,
                 code_inline: styles.markdownInlineCode,
                 link: styles.markdownLink,
                 list_item: styles.markdownListItem,
-              }}>
+                bullet_list: styles.markdownBulletList,
+                ordered_list: styles.markdownOrderedList,
+                blockquote: styles.markdownBlockquote,
+              }}
+              mergeStyle={false}>
               {displayText}
             </Markdown>
           )}
@@ -1039,7 +1067,10 @@ export default function ChatDetailScreen() {
               data={messages}
               renderItem={renderMessage}
               keyExtractor={(item) => item.id}
-              contentContainerStyle={styles.messagesList}
+              contentContainerStyle={[
+                styles.messagesList,
+                { paddingBottom: 120 + (insets.bottom || 0) }, // 为输入框（最大高度100+padding）和底部安全区域留出空间
+              ]}
               showsVerticalScrollIndicator={false}
               onContentSizeChange={() => {
                 // 使用requestAnimationFrame避免频繁调用，减少内存压力
@@ -1207,7 +1238,7 @@ const styles = StyleSheet.create({
   messagesList: {
     paddingHorizontal: 16,
     paddingVertical: 12,
-    paddingBottom: 8,
+    // paddingBottom 通过内联样式动态设置，为输入框留出空间
   },
   messageContainer: {
     marginVertical: 4,
@@ -1282,6 +1313,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     borderRadius: 4,
     fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }),
+  },
+  markdownHeading: {
+    fontWeight: '700',
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  markdownBulletList: {
+    marginTop: 4,
+    marginBottom: 4,
+  },
+  markdownOrderedList: {
+    marginTop: 4,
+    marginBottom: 4,
+  },
+  markdownBlockquote: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#3F99A6',
+    paddingLeft: 12,
+    marginVertical: 8,
+    backgroundColor: 'rgba(63, 153, 166, 0.1)',
+    paddingVertical: 4,
   },
   inputContainer: {
     flexDirection: 'row',

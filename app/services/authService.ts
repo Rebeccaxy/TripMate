@@ -7,6 +7,8 @@ export interface User {
   name: string;
   email: string;
   createdAt: string;
+  // 可选：服务端从请求中解析到的客户端 IP
+  ip?: string | null;
 }
 
 // API基础URL
@@ -85,8 +87,11 @@ export async function registerUser(
       };
     }
 
-    // 调用后端API
-    const response = await fetch(`${API_BASE_URL}/auth/register`, {
+    const url = `${API_BASE_URL}/auth/register`;
+    console.log('🌐 [注册] 准备请求后端接口:', url);
+
+    const startedAt = Date.now();
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -98,7 +103,22 @@ export async function registerUser(
       }),
     });
 
-    const data = await response.json();
+    const duration = Date.now() - startedAt;
+    console.log(`🌐 [注册] 收到响应，耗时 ${duration}ms，状态码 ${response.status}`);
+
+    const rawText = await response.text();
+    console.log('🌐 [注册] 原始响应文本前200字符:', rawText.slice(0, 200));
+
+    let data: any = {};
+    try {
+      data = rawText ? JSON.parse(rawText) : {};
+    } catch (e) {
+      console.error('❌ [注册] 解析 JSON 失败，返回的不是合法 JSON：', e);
+      return {
+        success: false,
+        message: `注册接口返回的不是 JSON（状态码 ${response.status}），请检查后端是否正确返回 JSON。`,
+      };
+    }
 
     if (data.success && data.user && data.token) {
       // 保存令牌和用户信息
@@ -142,8 +162,11 @@ export async function loginUser(
       };
     }
 
-    // 调用后端API
-    const response = await fetch(`${API_BASE_URL}/auth/login`, {
+    const url = `${API_BASE_URL}/auth/login`;
+    console.log('🌐 [登录] 准备请求后端接口:', url);
+
+    const startedAt = Date.now();
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -154,7 +177,22 @@ export async function loginUser(
       }),
     });
 
-    const data = await response.json();
+    const duration = Date.now() - startedAt;
+    console.log(`🌐 [登录] 收到响应，耗时 ${duration}ms，状态码 ${response.status}`);
+
+    const rawText = await response.text();
+    console.log('🌐 [登录] 原始响应文本前200字符:', rawText.slice(0, 200));
+
+    let data: any = {};
+    try {
+      data = rawText ? JSON.parse(rawText) : {};
+    } catch (e) {
+      console.error('❌ [登录] 解析 JSON 失败，返回的不是合法 JSON：', e);
+      return {
+        success: false,
+        message: `登录接口返回的不是 JSON（状态码 ${response.status}），请检查后端是否正确返回 JSON。`,
+      };
+    }
 
     if (data.success && data.user && data.token) {
       // 保存令牌和用户信息
@@ -254,6 +292,17 @@ export async function isLoggedIn(): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * 导出 authService 对象，提供 getToken 方法供其他服务使用
+ */
+export const authService = {
+  getToken,
+  saveToken,
+  clearToken,
+  getCurrentUser,
+  isLoggedIn,
+};
 
 
 

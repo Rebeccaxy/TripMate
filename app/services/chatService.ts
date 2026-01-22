@@ -1,6 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { callQianwenAPI } from './qianwenService';
 
+// 标题最大字数限制
+const MAX_TITLE_LENGTH = 20;
+
 // 聊天对话数据类型
 export interface ChatConversation {
   id: string;
@@ -14,9 +17,9 @@ const CONVERSATIONS_STORAGE_KEY = '@tripMate:conversations';
 const MESSAGES_STORAGE_KEY = '@tripMate:messages';
 
 // 存储与内存保护阈值
-const MAX_MESSAGES = 30;
-const MAX_MESSAGE_TEXT_LENGTH = 2000;
-const MAX_MESSAGES_JSON_SIZE = 50 * 1024; // 50KB，避免解析超大JSON导致OOM
+const MAX_MESSAGES = 50; // 增加消息数量限制
+const MAX_MESSAGE_TEXT_LENGTH = 100000; // 大幅增加消息文本长度限制，允许更长的完整回复
+const MAX_MESSAGES_JSON_SIZE = 1000 * 1024; // 1MB，允许更大的JSON以存储完整对话
 
 function normalizeMessagesForStorage(messages: ChatMessage[]): ChatMessage[] {
   const limited = messages.length > MAX_MESSAGES
@@ -24,13 +27,12 @@ function normalizeMessagesForStorage(messages: ChatMessage[]): ChatMessage[] {
     : messages;
 
   return limited.map((msg) => {
-    if (msg.text.length <= MAX_MESSAGE_TEXT_LENGTH) {
-      return msg;
+    // 不再截断消息内容，允许完整保存
+    // 只在极端情况下（超过50KB）才截断
+    if (msg.text.length > MAX_MESSAGE_TEXT_LENGTH) {
+      console.warn(`[消息存储] 消息过长(${msg.text.length}字符)，但允许保存`);
     }
-    return {
-      ...msg,
-      text: msg.text.substring(0, MAX_MESSAGE_TEXT_LENGTH) + '\n\n[内容已截断]',
-    };
+    return msg;
   });
 }
 
@@ -122,15 +124,26 @@ export async function addConversation(
   conversation: ChatConversation
 ): Promise<void> {
   try {
+    // 如果标题过长，进行蒸馏
+    let finalConversation = conversation;
+    if (conversation.title.length > MAX_TITLE_LENGTH) {
+      console.log(`[添加对话] 标题过长(${conversation.title.length}字符)，开始蒸馏...`);
+      const distilledTitle = await distillTitle(conversation.title, conversation.summary);
+      finalConversation = {
+        ...conversation,
+        title: distilledTitle,
+      };
+    }
+
     const conversations = await getAllConversations();
     // 检查是否已存在相同 ID 的对话
-    const existingIndex = conversations.findIndex((c) => c.id === conversation.id);
+    const existingIndex = conversations.findIndex((c) => c.id === finalConversation.id);
     if (existingIndex >= 0) {
       // 如果存在，更新它
-      conversations[existingIndex] = conversation;
+      conversations[existingIndex] = finalConversation;
     } else {
       // 如果不存在，添加到最前面
-      conversations.unshift(conversation);
+      conversations.unshift(finalConversation);
     }
     await saveAllConversations(conversations);
   } catch (error) {
@@ -149,7 +162,22 @@ export async function updateConversation(
     const conversations = await getAllConversations();
     const index = conversations.findIndex((c) => c.id === id);
     if (index >= 0) {
-      conversations[index] = { ...conversations[index], ...updates };
+      // 如果更新了标题且标题过长，进行蒸馏
+      let finalUpdates = updates;
+      if (updates.title && updates.title.length > MAX_TITLE_LENGTH) {
+        console.log(`[更新对话] 标题过长(${updates.title.length}字符)，开始蒸馏...`);
+        const currentConversation = conversations[index];
+        const distilledTitle = await distillTitle(
+          updates.title,
+          updates.summary || currentConversation.summary
+        );
+        finalUpdates = {
+          ...updates,
+          title: distilledTitle,
+        };
+      }
+
+      conversations[index] = { ...conversations[index], ...finalUpdates };
       // 更新后移到最前面
       const updated = conversations.splice(index, 1)[0];
       conversations.unshift(updated);
@@ -256,6 +284,71 @@ export async function addMessageToChat(
 }
 
 /**
+ * 使用AI蒸馏对话标题，确保标题在固定字数范围内
+ * @param originalTitle 原始标题
+ * @param summary 对话摘要（可选，用于上下文）
+ * @returns 蒸馏后的标题
+ */
+export async function distillTitle(
+  originalTitle: string,
+  summary?: string
+): Promise<string> {
+  // 如果标题已经在限制范围内，直接返回
+  if (originalTitle.length <= MAX_TITLE_LENGTH) {
+    return originalTitle;
+  }
+
+  try {
+    console.log(`[标题蒸馏] 开始蒸馏标题，原始长度: ${originalTitle.length}字符`);
+    
+    // 构建提示词
+    const prompt = `请将以下对话标题精简到${MAX_TITLE_LENGTH}个字以内，保持核心意思不变，语言简洁自然：
+
+标题：${originalTitle}
+${summary ? `对话摘要：${summary}` : ''}
+
+要求：
+1. 标题必须在${MAX_TITLE_LENGTH}个字以内
+2. 保留标题的核心信息和关键词
+3. 语言自然流畅，不要生硬截断
+4. 只返回精简后的标题，不要添加任何解释或说明
+
+精简后的标题：`;
+
+    // 调用AI进行标题蒸馏
+    const distilledTitle = await callQianwenAPI(prompt, []);
+    
+    // 清理AI返回的内容（移除可能的引号、换行等）
+    let cleanedTitle = distilledTitle
+      .trim()
+      .replace(/^["'「」『』]|["'「」『』]$/g, '') // 移除首尾引号
+      .replace(/\n+/g, ' ') // 替换换行为空格
+      .trim();
+
+    // 如果AI返回的标题仍然过长，进行截断
+    if (cleanedTitle.length > MAX_TITLE_LENGTH) {
+      console.warn(`[标题蒸馏] AI返回的标题仍然过长(${cleanedTitle.length}字符)，进行截断`);
+      cleanedTitle = cleanedTitle.substring(0, MAX_TITLE_LENGTH);
+    }
+
+    // 如果AI返回的标题太短或无效，使用简单的截断作为后备
+    if (cleanedTitle.length < 3) {
+      console.warn(`[标题蒸馏] AI返回的标题太短，使用简单截断作为后备`);
+      cleanedTitle = originalTitle.substring(0, MAX_TITLE_LENGTH);
+    }
+
+    console.log(`[标题蒸馏] 完成，原始: ${originalTitle}，蒸馏后: ${cleanedTitle} (${cleanedTitle.length}字符)`);
+    return cleanedTitle;
+  } catch (error) {
+    console.error('[标题蒸馏] AI蒸馏失败，使用简单截断:', error);
+    // 如果AI调用失败，使用简单的截断作为后备方案
+    return originalTitle.length > MAX_TITLE_LENGTH
+      ? originalTitle.substring(0, MAX_TITLE_LENGTH - 1) + '…'
+      : originalTitle;
+  }
+}
+
+/**
  * 格式化更新时间
  */
 export function formatUpdatedAt(date: Date): string {
@@ -284,14 +377,22 @@ export function formatUpdatedAt(date: Date): string {
  */
 export async function getAIResponse(
   userMessage: string,
-  chatId: string
+  chatId: string,
+  context?: { itinerary?: any; travelDNA?: any } | null
 ): Promise<string> {
   const requestId = Date.now();
   const startTime = Date.now();
   
   try {
-    if (__DEV__) {
-      console.log(`[AI请求] #${requestId} 开始，用户消息长度: ${userMessage.length}字符`);
+    console.log(`\n[AI请求] ========== 开始处理AI请求 ==========`);
+    console.log(`[AI请求] #${requestId} 时间戳: ${new Date().toISOString()}`);
+    console.log(`[AI请求] #${requestId} 用户消息长度: ${userMessage.length}字符`);
+    console.log(`[AI请求] #${requestId} 对话ID: ${chatId || '未指定'}`);
+    if (context) {
+      console.log(`[AI请求] #${requestId} 上下文:`, {
+        hasItinerary: !!context.itinerary,
+        hasTravelDNA: !!context.travelDNA,
+      });
     }
 
     // 不加载对话历史，避免额外内存占用
@@ -305,14 +406,18 @@ export async function getAIResponse(
     }
     
     // 调用千问API
-    console.log(`[AI请求] #${requestId} ⏳ 开始等待 callQianwenAPI 返回...`);
-    const aiResponse = await callQianwenAPI(userMessage, conversationHistory);
-    console.log(`[AI请求] #${requestId} ✅ callQianwenAPI 返回成功`);
+    const apiCallStartTime = Date.now();
+    console.log(`[AI请求] #${requestId} ⏳ 开始调用 callQianwenAPI...`);
+    console.log(`[AI请求] #${requestId} 调用时间: ${new Date().toISOString()}`);
     
-    const elapsed = Date.now() - startTime;
-    if (__DEV__) {
-      console.log(`[AI请求] #${requestId} API调用成功，耗时${elapsed}ms，响应长度: ${aiResponse.length}字符`);
-    }
+    const aiResponse = await callQianwenAPI(userMessage, conversationHistory, context);
+    
+    const apiCallElapsed = Date.now() - apiCallStartTime;
+    const totalElapsed = Date.now() - startTime;
+    console.log(`[AI请求] #${requestId} ✅ callQianwenAPI 返回成功`);
+    console.log(`[AI请求] #${requestId} API调用耗时: ${apiCallElapsed}ms`);
+    console.log(`[AI请求] #${requestId} 总耗时: ${totalElapsed}ms`);
+    console.log(`[AI请求] #${requestId} 响应长度: ${aiResponse.length}字符`);
     
     const formattedResponse = normalizeMarkdownForDisplay(aiResponse);
     
@@ -323,17 +428,24 @@ export async function getAIResponse(
     return formattedResponse;
   } catch (error) {
     const elapsed = Date.now() - startTime;
-    console.error(`[AI请求] #${requestId} 失败，耗时${elapsed}ms:`, error);
+    console.error(`\n[AI请求] ========== 请求失败 ==========`);
+    console.error(`[AI请求] #${requestId} 失败，耗时${elapsed}ms`);
+    console.error(`[AI请求] #${requestId} 错误时间: ${new Date().toISOString()}`);
+    console.error(`[AI请求] #${requestId} 错误对象:`, error);
     
     // 返回友好的错误提示
     if (error instanceof Error) {
-      if (__DEV__) {
-        console.error(`[AI请求] #${requestId} 错误详情:`, {
-          message: error.message,
-          stack: error.stack,
-          elapsed,
-        });
+      console.error(`[AI请求] #${requestId} 错误类型: ${error.constructor.name}`);
+      console.error(`[AI请求] #${requestId} 错误消息: ${error.message}`);
+      if (error.stack) {
+        console.error(`[AI请求] #${requestId} 错误堆栈:`, error.stack.substring(0, 500));
       }
+      console.error(`[AI请求] #${requestId} 完整错误详情:`, {
+        name: error.name,
+        message: error.message,
+        stack: error.stack?.substring(0, 500),
+        elapsed,
+      });
       // 如果是API密钥未配置的错误，返回特定提示
       if (error.message.includes('API密钥未配置')) {
         return '抱歉，AI服务尚未配置。请在 app/config/api.ts 中设置您的千问API密钥。';

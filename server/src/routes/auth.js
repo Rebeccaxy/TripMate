@@ -23,9 +23,15 @@ router.post(
   ],
   async (req, res) => {
     try {
+      console.log('[auth/register] 收到注册请求:', {
+        name: req.body?.name,
+        email: req.body?.email,
+      });
+
       // 验证输入
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
+        console.warn('[auth/register] 输入验证失败:', errors.array());
         return res.status(400).json({
           success: false,
           message: errors.array()[0].msg,
@@ -37,7 +43,7 @@ router.post(
       // 检查邮箱是否已存在
       User.emailExists(email, async (err, exists) => {
         if (err) {
-          console.error('检查邮箱失败:', err);
+          console.error('[auth/register] 检查邮箱失败:', err);
           return res.status(500).json({
             success: false,
             message: '服务器错误，请稍后重试',
@@ -45,6 +51,7 @@ router.post(
         }
 
         if (exists) {
+          console.warn('[auth/register] 邮箱已存在:', email);
           return res.status(400).json({
             success: false,
             message: '该邮箱已被注册',
@@ -62,7 +69,7 @@ router.post(
 
         User.create(newUser, (err, user) => {
           if (err) {
-            console.error('创建用户失败:', err);
+            console.error('[auth/register] 创建用户失败:', err);
             return res.status(500).json({
               success: false,
               message: '注册失败，请稍后重试',
@@ -72,6 +79,7 @@ router.post(
           // 生成JWT令牌
           const token = generateToken(user);
 
+          console.log('[auth/register] 注册成功, userId=', user.id);
           res.status(201).json({
             success: true,
             message: '注册成功',
@@ -86,7 +94,7 @@ router.post(
         });
       });
     } catch (error) {
-      console.error('注册错误:', error);
+      console.error('[auth/register] 未捕获错误:', error);
       res.status(500).json({
         success: false,
         message: '，请稍后重试',
@@ -193,6 +201,21 @@ router.get('/me', require('../middleware/auth').authenticateToken, (req, res) =>
       });
     }
 
+    // 从请求中尽量解析出客户端 IP（考虑反向代理场景）
+    const xForwardedFor = req.headers['x-forwarded-for'];
+    const ipFromHeader = Array.isArray(xForwardedFor)
+      ? xForwardedFor[0]
+      : (xForwardedFor || '').split(',')[0].trim();
+    const clientIp =
+      ipFromHeader ||
+      (req.connection && req.connection.remoteAddress) ||
+      (req.socket && req.socket.remoteAddress) ||
+      (req.connection &&
+        req.connection.socket &&
+        req.connection.socket.remoteAddress) ||
+      req.ip ||
+      null;
+
     res.json({
       success: true,
       user: {
@@ -200,6 +223,7 @@ router.get('/me', require('../middleware/auth').authenticateToken, (req, res) =>
         name: user.name,
         email: user.email,
         createdAt: user.created_at,
+        ip: clientIp,
       },
     });
   });

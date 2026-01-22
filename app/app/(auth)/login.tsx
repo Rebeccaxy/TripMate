@@ -23,28 +23,22 @@ const SCREEN_WIDTH = width;
 
 export default function LoginScreen() {
   const router = useRouter();
-  const [language, setLanguage] = useState<'English' | '中文'>('English');
   const [mode, setMode] = useState<'login' | 'register'>('login');
   
-  // 登录表单状态
+  // Login form state
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   
-  // 注册表单状态
+  // Register form state
   const [name, setName] = useState('');
   const [registerEmail, setRegisterEmail] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isRegisterLoading, setIsRegisterLoading] = useState(false);
 
-  // 动画值
+  // Animation value
   const slideAnim = useRef(new Animated.Value(0)).current;
-
-  const toggleLanguage = () => {
-    setLanguage(language === 'English' ? '中文' : 'English');
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
 
   const switchMode = (newMode: 'login' | 'register') => {
     if (newMode === mode) return;
@@ -63,8 +57,8 @@ export default function LoginScreen() {
   const handleLogin = async () => {
     if (!email || !password) {
       Alert.alert(
-        language === 'English' ? 'Alert' : '提示',
-        language === 'English' ? 'Please enter email and password' : '请输入邮箱和密码'
+        'Alert',
+        'Please enter email and password'
       );
       return;
     }
@@ -78,26 +72,26 @@ export default function LoginScreen() {
 
       if (result.success) {
         Alert.alert(
-          language === 'English' ? 'Success' : '成功',
-          language === 'English' ? 'Login successful!' : '登录成功！',
+          'Success',
+          'Login successful!',
           [
             {
-              text: language === 'English' ? 'OK' : '确定',
+              text: 'OK',
               onPress: () => router.replace('/(tabs)'),
             },
           ]
         );
       } else {
         Alert.alert(
-          language === 'English' ? 'Error' : '错误',
+          'Error',
           result.message
         );
       }
     } catch (error) {
       setIsLoading(false);
       Alert.alert(
-        language === 'English' ? 'Error' : '错误',
-        language === 'English' ? 'Login failed. Please try again.' : '登录失败，请稍后重试。'
+        'Error',
+        'Login failed. Please try again.'
       );
     }
   };
@@ -105,24 +99,24 @@ export default function LoginScreen() {
   const handleRegister = async () => {
     if (!name || !registerEmail || !registerPassword || !confirmPassword) {
       Alert.alert(
-        language === 'English' ? 'Alert' : '提示',
-        language === 'English' ? 'Please fill in all fields' : '请填写所有字段'
+        'Alert',
+        'Please fill in all fields'
       );
       return;
     }
 
     if (registerPassword !== confirmPassword) {
       Alert.alert(
-        language === 'English' ? 'Alert' : '提示',
-        language === 'English' ? 'Passwords do not match' : '两次输入的密码不一致'
+        'Alert',
+        'Passwords do not match'
       );
       return;
     }
 
     if (registerPassword.length < 6) {
       Alert.alert(
-        language === 'English' ? 'Alert' : '提示',
-        language === 'English' ? 'Password must be at least 6 characters' : '密码长度至少为6位'
+        'Alert',
+        'Password must be at least 6 characters'
       );
       return;
     }
@@ -134,29 +128,29 @@ export default function LoginScreen() {
       const result = await registerUser(name, registerEmail, registerPassword);
 
       if (result.success) {
-        // 注册成功后自动登录
+        // Auto login after successful registration
         try {
           const loginResult = await loginUser(registerEmail, registerPassword);
           setIsRegisterLoading(false);
           
           if (loginResult.success) {
             Alert.alert(
-              language === 'English' ? 'Success' : '成功',
-              language === 'English' ? 'Registration successful!' : '注册成功！',
+              'Success',
+              'Registration successful!',
               [
                 {
-                  text: language === 'English' ? 'OK' : '确定',
+                  text: 'OK',
                   onPress: () => router.replace('/(tabs)'),
                 },
               ]
             );
           } else {
             Alert.alert(
-              language === 'English' ? 'Success' : '成功',
-              language === 'English' ? 'Registration successful! Please login.' : '注册成功！请登录。',
+              'Success',
+              'Registration successful! Please login.',
               [
                 {
-                  text: language === 'English' ? 'OK' : '确定',
+                  text: 'OK',
                   onPress: () => switchMode('login'),
                 },
               ]
@@ -165,11 +159,11 @@ export default function LoginScreen() {
         } catch (loginError) {
           setIsRegisterLoading(false);
           Alert.alert(
-            language === 'English' ? 'Success' : '成功',
-            language === 'English' ? 'Registration successful! Please login manually.' : '注册成功！请手动登录。',
+            'Success',
+            'Registration successful! Please login manually.',
             [
               {
-                text: language === 'English' ? 'OK' : '确定',
+                text: 'OK',
                 onPress: () => switchMode('login'),
               },
             ]
@@ -178,15 +172,15 @@ export default function LoginScreen() {
       } else {
         setIsRegisterLoading(false);
         Alert.alert(
-          language === 'English' ? 'Error' : '错误',
+          'Error',
           result.message
         );
       }
     } catch (error) {
       setIsRegisterLoading(false);
       Alert.alert(
-        language === 'English' ? 'Error' : '错误',
-        language === 'English' ? 'Registration failed. Please try again.' : '注册失败，请稍后重试。'
+        'Error',
+        'Registration failed. Please try again.'
       );
     }
   };
@@ -194,13 +188,13 @@ export default function LoginScreen() {
   const handleSocialLogin = (provider: 'google' | 'apple' | 'facebook') => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     
-    // 开发模式：点击苹果图标直接跳转到主界面
+    // Development mode: Click Apple icon to jump directly to main screen
     if (provider === 'apple') {
       router.replace('/(tabs)');
       return;
     }
     
-    // TODO: 实现第三方登录逻辑
+    // TODO: Implement third-party login logic
     console.log(`${provider} ${mode}`);
   };
 
@@ -210,50 +204,39 @@ export default function LoginScreen() {
     outputRange: [0, -SCREEN_WIDTH],
   });
 
-  // 多语言文本 - 登录
-  const loginTitleMain = language === 'English' ? "Let's" : "让我们";
-  const loginTitleSub = language === 'English' ? "Travel you in." : "开始您的旅程。";
-  const loginSubtitle = language === 'English'
-    ? 'Discover the World with Every Sign In'
-    : '每一次登录，发现新世界';
-  const emailPlaceholder = language === 'English' ? 'Email or Phone Number' : '邮箱或手机号';
-  const passwordPlaceholder = language === 'English' ? 'Password' : '密码';
-  const forgotPasswordText = language === 'English' ? 'Forgot password?' : '忘记密码？';
-  const signInButton = language === 'English' ? 'Sign In' : '登录';
-  const orSignInWith = language === 'English' ? 'or sign in with' : '或使用以下方式登录';
-  const noAccount = language === 'English' ? "I don't have a account?" : '还没有账号？';
-  const signUp = language === 'English' ? 'Sign Up' : '注册';
+  // Login text
+  const loginTitleMain = "Let's";
+  const loginTitleSub = "Travel you in.";
+  const loginSubtitle = 'Discover the World with Every Sign In';
+  const emailPlaceholder = 'Email or Phone Number';
+  const passwordPlaceholder = 'Password';
+  const forgotPasswordText = 'Forgot password?';
+  const signInButton = 'Sign In';
+  const orSignInWith = 'or sign in with';
+  const noAccount = "I don't have a account?";
+  const signUp = 'Sign Up';
 
-  // 多语言文本 - 注册
-  const registerTitleMain = language === 'English' ? "Let's" : "让我们";
-  const registerTitleSub = language === 'English' ? "Travel you in." : "开始您的旅程。";
-  const registerSubtitle = language === 'English'
-    ? 'Create Your Account and Start Your Journey'
-    : '创建您的账号，开启您的旅程';
-  const namePlaceholder = language === 'English' ? 'Full Name' : '姓名';
-  const registerEmailPlaceholder = language === 'English' ? 'Email' : '邮箱';
-  const registerPasswordPlaceholder = language === 'English' ? 'Password (at least 6 characters)' : '密码（至少6位）';
-  const confirmPasswordPlaceholder = language === 'English' ? 'Confirm Password' : '确认密码';
-  const registerButton = language === 'English' ? 'Sign Up' : '注册';
-  const orSignUpWith = language === 'English' ? 'or sign up with' : '或使用以下方式注册';
-  const hasAccount = language === 'English' ? "Already have an account?" : '已有账号？';
-  const signIn = language === 'English' ? 'Sign In' : '登录';
+  // Register text
+  const registerTitleMain = "Let's";
+  const registerTitleSub = "Travel you in.";
+  const registerSubtitle = 'Create Your Account and Start Your Journey';
+  const namePlaceholder = 'Full Name';
+  const registerEmailPlaceholder = 'Email';
+  const registerPasswordPlaceholder = 'Password (at least 6 characters)';
+  const confirmPasswordPlaceholder = 'Confirm Password';
+  const registerButton = 'Sign Up';
+  const orSignUpWith = 'or sign up with';
+  const hasAccount = "Already have an account?";
+  const signIn = 'Sign In';
 
   return (
     <View style={styles.container}>
       <ImageBackground
-        source={require('@/assets/images/auth/Sign In-BG.png')}
+        // 去掉文件名空格，避免加载失败
+        source={require('@/assets/images/auth/sign-in-bg.png')}
         style={styles.backgroundImage}
         resizeMode="cover">
         
-        {/* 右上角语言选择器 */}
-        <TouchableOpacity
-          style={styles.languageSelector}
-          onPress={toggleLanguage}
-          activeOpacity={0.7}>
-          <Text style={styles.languageText}>{language}</Text>
-          <Text style={styles.languageArrow}>▼</Text>
-        </TouchableOpacity>
 
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -325,7 +308,7 @@ export default function LoginScreen() {
                     disabled={isLoading}
                     activeOpacity={0.8}>
                     <Text style={styles.loginButtonText}>
-                      {isLoading ? (language === 'English' ? 'Signing in...' : '登录中...') : signInButton}
+                      {isLoading ? 'Signing in...' : signInButton}
                     </Text>
                   </TouchableOpacity>
 
@@ -460,7 +443,7 @@ export default function LoginScreen() {
                     disabled={isRegisterLoading}
                     activeOpacity={0.8}>
                     <Text style={styles.registerButtonText}>
-                      {isRegisterLoading ? (language === 'English' ? 'Signing up...' : '注册中...') : registerButton}
+                      {isRegisterLoading ? 'Signing up...' : registerButton}
                     </Text>
                   </TouchableOpacity>
 
@@ -533,24 +516,6 @@ const styles = StyleSheet.create({
     flex: 1,
     width: '100%',
     height: '100%',
-  },
-  languageSelector: {
-    position: 'absolute',
-    top: 50,
-    right: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    zIndex: 10,
-  },
-  languageText: {
-    fontSize: 14,
-    color: '#FFFFFF',
-    fontWeight: '500',
-  },
-  languageArrow: {
-    fontSize: 10,
-    color: '#FFFFFF',
   },
   keyboardView: {
     flex: 1,

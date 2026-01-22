@@ -40,9 +40,8 @@ interface QianwenResponse {
   request_id: string;
 }
 
-const MAX_RESPONSE_TEXT_SIZE = 20000; // 20KB，进一步降低内存峰值
-const MAX_RESPONSE_LENGTH = 2000; // 最多2000字符
-const REQUEST_TIMEOUT_MS = 30000; // 30秒超时
+const MAX_RESPONSE_TEXT_SIZE = 500000; // 500KB，大幅增加以允许更长的完整响应
+const REQUEST_TIMEOUT_MS = 90000; // 90秒超时，给AI更多时间生成长内容
 
 // Promise 超时包装（React Native 兼容）
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
@@ -76,10 +75,7 @@ function logRequestStatus(status: RequestStatus): void {
 
 
 function truncateResponseContent(content: string): string {
-  if (content.length > MAX_RESPONSE_LENGTH) {
-    console.warn(`[警告] 响应过长(${content.length}字符)，截断到${MAX_RESPONSE_LENGTH}字符`);
-    return content.substring(0, MAX_RESPONSE_LENGTH) + '\n\n[响应已截断，内容过长]';
-  }
+  // 不再截断响应内容，允许完整返回
   return content;
 }
 
@@ -88,11 +84,13 @@ function truncateResponseContent(content: string): string {
  * 调用千问API生成回复
  * @param userMessage 用户消息
  * @param conversationHistory 对话历史（可选）
+ * @param context 隐式上下文（可选，包含 itinerary 和 travelDNA）
  * @returns AI回复内容
  */
 export async function callQianwenAPI(
   userMessage: string,
-  conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = []
+  conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = [],
+  context?: { itinerary?: any; travelDNA?: any } | null
 ): Promise<string> {
   // 立即输出日志，确保函数被调用
   console.log(`\n[千问API] ========== 函数调用开始 ==========`);
@@ -126,10 +124,48 @@ export async function callQianwenAPI(
     
     console.log(`[千问API] 开始格式化系统提示词...`);
     let systemPrompt = formatPreferencesAsPrompt(preferences);
+    
+    // 如果有隐式上下文，添加到系统提示词中
+    if (context) {
+      const contextParts: string[] = [];
+      
+      if (context.itinerary) {
+        const { country, city, activities, days } = context.itinerary;
+        contextParts.push(`用户当前关注的行程：${country}·${city}，计划停留${days}天，想体验：${Array.isArray(activities) ? activities.join('、') : activities}`);
+      }
+      
+      if (context.travelDNA) {
+        const dnaParts: string[] = [];
+        if (context.travelDNA.types && context.travelDNA.types.length > 0) {
+          dnaParts.push(`旅行类型：${context.travelDNA.types.join('、')}`);
+        }
+        if (context.travelDNA.budget) {
+          dnaParts.push(`预算：${context.travelDNA.budget}`);
+        }
+        if (context.travelDNA.pace) {
+          dnaParts.push(`节奏：${context.travelDNA.pace}`);
+        }
+        if (context.travelDNA.environment && context.travelDNA.environment.length > 0) {
+          dnaParts.push(`环境偏好：${context.travelDNA.environment.join('、')}`);
+        }
+        if (context.travelDNA.wishlist) {
+          dnaParts.push(`愿望清单：${context.travelDNA.wishlist}`);
+        }
+        
+        if (dnaParts.length > 0) {
+          contextParts.push(`用户旅行偏好：${dnaParts.join('；')}`);
+        }
+      }
+      
+      if (contextParts.length > 0) {
+        systemPrompt = `${systemPrompt}\n\n${contextParts.join('\n')}`;
+      }
+    }
+    
     console.log(`[千问API] ✅ 系统提示词格式化完成，长度: ${systemPrompt.length}字符`);
     
-    // 严格限制系统提示词长度，避免内存溢出
-    const maxSystemPromptLength = 200; // 系统提示词最多200字符（最小化）
+    // 允许更长的系统提示词
+    const maxSystemPromptLength = 2000; // 增加长度以容纳更多上下文
     if (systemPrompt.length > maxSystemPromptLength) {
       systemPrompt = systemPrompt.substring(0, maxSystemPromptLength) + '...';
     }
@@ -138,15 +174,20 @@ export async function callQianwenAPI(
     const messages: QianwenMessage[] = [
       {
         role: 'system',
-        content: `你是TripMate旅行助手。${systemPrompt}用中文回复，简洁友好。`,
+        content: `你是TripMate旅行助手。${systemPrompt}用中文回复，要求：
+1. 提供详细、有用、有参考价值的信息，帮助用户做出决策
+2. 内容要充实，包含实用的建议、具体的细节和可操作的建议
+3. 避免不必要的客套话、重复和啰嗦，但要确保信息完整
+4. 条理清晰，结构明确，便于用户理解和参考
+5. 在"详细有用"和"简洁高效"之间找到平衡，确保回答既有参考价值又不会过于冗长`,
       },
     ];
 
     // 完全禁用对话历史以避免内存溢出（只使用当前消息）
     // 在React Native环境中，对话历史会导致严重的内存问题
     
-    // 添加当前用户消息（严格限制长度）
-    const maxUserMessageLength = 200; // 用户消息最多200字符
+    // 允许更长的用户消息
+    const maxUserMessageLength = 2000; // 用户消息最多2000字符
     const truncatedUserMessage = userMessage.length > maxUserMessageLength
       ? userMessage.substring(0, maxUserMessageLength) + '...'
       : userMessage;
@@ -164,9 +205,9 @@ export async function callQianwenAPI(
         messages,
       },
       parameters: {
-        temperature: 0.7, // 控制回复的随机性，0-1之间，值越大越随机
-        max_tokens: 300, // 最大回复长度（最小化以避免内存溢出）
-        top_p: 0.9, // 核采样参数
+        temperature: 0.7, // 适中的随机性，平衡创造性和准确性
+        max_tokens: 4000, // 大幅增加最大回复长度，允许更长的完整回复
+        top_p: 0.9, // 核采样参数，允许更多样化的表达
       },
     };
     console.log(`[千问API] ✅ 请求体构建完成，消息数量: ${messages.length}`);
@@ -310,14 +351,9 @@ export async function callQianwenAPI(
       });
 
       const contentLengthHeader = response.headers.get('content-length');
+      // 不再因为响应过大而抛出错误，允许更大的响应
       if (contentLengthHeader && Number(contentLengthHeader) > maxResponseSize) {
-        logRequestStatus({
-          stage: 'error',
-          message: `响应过大（Content-Length: ${contentLengthHeader} > ${maxResponseSize}）`,
-          timestamp: requestStartTime,
-          error: 'RESPONSE_TOO_LARGE',
-        });
-        throw new Error('API响应过大，请稍后重试');
+        console.warn(`[千问API] 响应较大（Content-Length: ${contentLengthHeader}），但允许处理`);
       }
 
       const textStartTime = Date.now();
@@ -330,10 +366,9 @@ export async function callQianwenAPI(
         timestamp: requestStartTime,
       });
       
-      // 限制响应文本大小，避免内存溢出
+      // 只检查响应大小，如果过大则记录警告，但不截断（允许更大的响应）
       if (responseText.length > maxResponseSize) {
-        console.warn(`API响应过大(${responseText.length}字符)，截断处理`);
-        responseText = responseText.substring(0, maxResponseSize);
+        console.warn(`API响应较大(${responseText.length}字符)，但允许完整返回`);
       }
       
       const parseStartTime = Date.now();
@@ -377,13 +412,7 @@ export async function callQianwenAPI(
         console.log(`[诊断] API原始响应大小: ${responseSize} 字符 (${responseSizeKB} KB)`);
       }
       
-      // 严格限制响应长度，避免内存溢出
-      // 增加到2KB字符（约4KB内存），但保持硬上限
-      const maxResponseLength = 2000; // 最多2000字符
-      if (response.length > maxResponseLength) {
-        console.warn(`[警告] 响应过长(${response.length}字符)，截断到${maxResponseLength}字符`);
-        return response.substring(0, maxResponseLength) + '\n\n[响应已截断，内容过长]';
-      }
+      // 不再截断响应，返回完整内容
       return response;
     } 
     // 检查 choices 格式（某些模型可能使用）
