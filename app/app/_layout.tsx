@@ -15,7 +15,11 @@ export const unstable_settings = {
 if (typeof ErrorUtils !== 'undefined') {
   const defaultHandler = ErrorUtils.getGlobalHandler();
   ErrorUtils.setGlobalHandler((error: Error, isFatal?: boolean) => {
-    console.error('全局错误捕获:', error, 'isFatal:', isFatal);
+    console.error('❌ [全局错误捕获]', error);
+    console.error('   错误名称:', error.name);
+    console.error('   错误消息:', error.message);
+    console.error('   是否致命:', isFatal);
+    console.error('   错误堆栈:', error.stack?.substring(0, 500));
     // 记录错误
     if (defaultHandler) {
       defaultHandler(error, isFatal);
@@ -38,6 +42,7 @@ export default function RootLayout() {
 
   // 在开发模式下捕获所有错误
   useEffect(() => {
+    console.log('✅ [RootLayout] 根布局组件已加载');
     if (__DEV__) {
       const originalConsoleError = console.error;
       console.error = (...args: any[]) => {

@@ -1,3 +1,5 @@
+![TripMate](https://rebecca050302.oss-cn-hangzhou.aliyuncs.com/typora/TripMate.png)
+
 # TripMate
 
 TripMate: A mobile travel planner integrating third-party APIs and an AI agent for personalized itineraries.  
@@ -210,6 +212,16 @@ For more troubleshooting, refer to:
 - `app/TROUBLESHOOTING.md` - Frontend troubleshooting / 前端故障排除
 - `CRITICAL_FIXES.md` - Critical bug fixes / 关键错误修复
 - `DIAGNOSTIC_GUIDE.md` - Diagnostic procedures / 诊断指南
+
+## Design Attribution / 设计致谢
+
+Some parts of TripMate's UI are inspired by and adapted from the Figma Community open-source UI kit:  
+TripMate 的部分界面设计借鉴并参考了 Figma Community 的开源 UI 资源：
+
+- [Travelin - Travelling App UI (Figma Community)](https://www.figma.com/community/file/1377526482587017983/travelin-travelling-app-ui)
+
+All rights to the original design assets belong to their respective creators.  
+原始设计资源的版权归原作者所有。
 
 ## License / 许可证
 

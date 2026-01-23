@@ -204,14 +204,26 @@ export default function TracesScreen() {
   const loadData = async (silent: boolean) => {
     try {
       if (!silent) setLoading(true);
-      await Promise.all([
+      // Use Promise.allSettled to continue even if one fails
+      // 使用 Promise.allSettled 确保即使某个请求失败也能继续
+      const results = await Promise.allSettled([
         loadCities(),
         loadStats(),
         loadTrajectory(),
       ]);
+      
+      // Log any failures
+      results.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          const names = ['Cities', 'Stats', 'Trajectory'];
+          console.error(`❌ [Traces] ${names[index]} 加载失败:`, result.reason);
+        }
+      });
     } catch (error) {
-      console.error('Failed to load data:', error);
-      Alert.alert('Error', 'Failed to load traces data, please try again later');
+      console.error('❌ [Traces] 加载数据失败:', error);
+      if (!silent) {
+        Alert.alert('Error', 'Failed to load traces data, please try again later');
+      }
     } finally {
       if (!silent) setLoading(false);
     }
@@ -258,8 +270,16 @@ export default function TracesScreen() {
     try {
       const trajectoryData = await tracesService.getLocationTrajectory();
       setTrajectory(trajectoryData);
-    } catch (error) {
-      console.error('Failed to load trajectory:', error);
+      console.log(`✅ [Traces] 轨迹加载成功，共 ${trajectoryData.length} 个点`);
+    } catch (error: any) {
+      console.error('❌ [Traces] 获取轨迹失败:', error);
+      console.error('   错误详情:', {
+        message: error?.message,
+        name: error?.name,
+        stack: error?.stack?.substring(0, 200),
+      });
+      // Don't show alert for silent refreshes, only for initial load
+      // 静默刷新时不显示错误提示，只在初始加载时显示
     }
   };
 
