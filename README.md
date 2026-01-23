@@ -1,4 +1,4 @@
-![TripMate](https://rebecca050302.oss-cn-hangzhou.aliyuncs.com/typora/TripMate.png)
+![TripMate](app/assets/images/README/TripMate.png)
 
 # TripMate
 
