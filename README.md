@@ -232,3 +232,14 @@ This project is licensed under **MIT License**. See `LICENSE` file for details.
 
 Welcome to submit Issues and Pull Requests!  
 欢迎提交 Issues 和 Pull Requests！
+
+## ⭐ Support Us / 支持我们
+
+If you find TripMate useful, please consider giving us a ⭐ star on GitHub!  
+如果您觉得 TripMate 有用，请在 GitHub 上为我们加 ⭐ 星标！
+
+👉 **[Star TripMate on GitHub](https://github.com/Rebeccaxy/TripMate)**  
+👉 **[在 GitHub 上为 TripMate 加星](https://github.com/Rebeccaxy/TripMate)**
+
+For more ways to support the project, see [SUPPORT_US.md](SUPPORT_US.md).  
+更多支持方式，请查看 [SUPPORT_US.md](SUPPORT_US.md)。
