@@ -8,12 +8,14 @@ TripMate：一款集成第三方 API 和 AI 助手的移动旅行规划应用，
 ## Features / 功能特性
 
 - 🗺️ Intelligent Travel Planning / 智能旅行规划
-- 🤖 AI Assistant (Powered by Tongyi Qianwen) / AI 助手（基于通义千问）
+- 💬 AI TripChat (Powered by Tongyi Qianwen) / AI 旅行对话与行程规划（基于通义千问）
 - 📱 Cross-platform Support (iOS / Android) / 跨平台支持（iOS / Android）
 - 🔐 User Authentication System / 用户认证系统
 - 💾 SQLite Database Storage / SQLite 数据库存储
 - 📍 Location Tracking & Traces / 位置追踪与足迹
 - 📝 Travel Notes & Community / 旅行笔记与社区
+- 🧬 Travel DNA / 旅行偏好画像（个性化行程与 AI 建议）
+- 🔍 Place Search & Detail / 地点搜索与详情
 
 ## Supported Platforms / 支持的平台
 
@@ -37,7 +39,7 @@ We provide a convenient startup script that launches both backend and frontend s
 
 ```bash
 # 1. Clone the repository / 克隆仓库
-git clone <your-repo-url>
+git clone https://github.com/Rebeccaxy/TripMate.git
 cd TripMate
 
 # 2. Grant execute permission to the script (one-time only) / 授予脚本执行权限（仅首次需要）
@@ -119,31 +121,43 @@ npm start                # Start development server only / 仅启动开发服务
 
 ```
 TripMate/
-├── app/                  # Frontend (React Native + Expo) / 前端（React Native + Expo）
-│   ├── app/             # Application pages / 应用页面
-│   │   ├── (auth)/      # Authentication pages / 认证页面
-│   │   ├── (tabs)/      # Main tab pages / 主标签页
-│   │   ├── account/     # Account & settings / 账号与设置
-│   │   ├── chat/        # Chat pages / 聊天页面
-│   │   └── post/        # Post editor / 帖子编辑器
-│   ├── components/      # Reusable components / 可复用组件
-│   ├── config/          # Configuration files / 配置文件
-│   ├── services/        # Service layer / 服务层
-│   └── assets/          # Images and resources / 图片和资源
-├── server/              # Backend (Node.js + Express) / 后端（Node.js + Express）
+├── app/                     # Frontend (React Native + Expo) / 前端
+│   ├── app/                 # Application pages / 应用页面
+│   │   ├── (auth)/          # Login, register / 登录、注册
+│   │   ├── (tabs)/          # Home, Traces, TripChat, Account / 首页、足迹、聊天、个人
+│   │   ├── account/         # Settings, Travel DNA / 设置、旅行偏好
+│   │   ├── chat/            # AI chat detail, new chat / 聊天详情、新建对话
+│   │   ├── place/           # Place detail / 地点详情
+│   │   ├── note/            # Note list, editor / 笔记列表、编辑
+│   │   ├── post/            # Post editor / 帖子编辑
+│   │   ├── search.tsx       # Place search / 地点搜索
+│   │   ├── community.tsx    # Community posts / 社区帖子
+│   │   └── onboarding.tsx   # Onboarding / 引导页
+│   ├── components/         # Reusable components / 可复用组件
+│   ├── config/              # API config / 配置文件
+│   ├── services/            # Service layer / 服务层
+│   ├── hooks/               # Custom hooks / 自定义 Hooks
+│   └── assets/              # Images and resources / 图片和资源
+├── server/                  # Backend (Node.js + Express) / 后端
 │   ├── src/
-│   │   ├── routes/      # API routes / API 路由
-│   │   ├── models/      # Data models / 数据模型
-│   │   ├── middleware/  # Middleware / 中间件
-│   │   └── db/         # Database configuration / 数据库配置
-│   └── data/           # SQLite database files / SQLite 数据库文件
-├── scripts/            # Utility scripts / 工具脚本
-│   └── tripmate.sh     # One-click startup script / 一键启动脚本
-└── docs/               # Documentation files / 文档文件
-    ├── TECHNICAL_DOCUMENTATION.md
-    ├── TECHNICAL_DOCUMENTATION_EN.md
-    ├── BACKEND_SETUP.md
-    └── TRACES_SETUP.md
+│   │   ├── routes/          # auth, ai, traces, chat, notes / API 路由
+│   │   ├── models/          # User, LocationPoint, CityVisit, Note, Post, etc. / 数据模型
+│   │   ├── middleware/      # JWT auth / 中间件
+│   │   └── db/              # SQLite / 数据库配置
+│   ├── data/                # tripmate.db / SQLite 数据库文件
+│   ├── scripts/             # delete-duplicate-city.js, etc. / 脚本
+│   ├── start.sh             # Backend start script / 后端启动脚本
+│   └── restart.sh           # Backend restart script / 后端重启脚本
+├── scripts/
+│   └── tripmate.sh          # One-click startup / 一键启动脚本
+├── TECHNICAL_DOCUMENTATION.md      # 技术文档（中文）
+├── TECHNICAL_DOCUMENTATION_EN.md   # 技术文档（英文）
+├── BACKEND_SETUP.md                # 后端设置指南
+├── BACKEND_SUMMARY.md              # 后端开发总结
+├── FRONTEND_SUMMARY.md             # 前端开发总结
+├── TRACES_SETUP.md                 # 足迹功能设置
+├── SUPPORT_US.md                   # 支持我们 / Star 引导
+└── test-ai.sh                      # AI 接口测试脚本
 ```
 
 ## Configuration / 配置
@@ -194,9 +208,12 @@ Get Tongyi Qianwen API Key: Visit [Alibaba Cloud DashScope Console](https://dash
 - `TECHNICAL_DOCUMENTATION.md` - Complete technical documentation (Chinese) / 完整技术文档（中文）
 - `TECHNICAL_DOCUMENTATION_EN.md` - Complete technical documentation (English) / 完整技术文档（英文）
 - `BACKEND_SETUP.md` - Backend setup guide / 后端设置指南
-- `BACKEND_SUMMARY.md` - API interface documentation / API 接口文档
+- `BACKEND_SUMMARY.md` - Backend API and development summary / 后端开发总结
+- `FRONTEND_SUMMARY.md` - Frontend structure, services, and development summary / 前端开发总结
 - `TRACES_SETUP.md` - Location tracking and traces feature setup / 位置追踪与足迹功能设置
+- `SUPPORT_US.md` - Support the project / Star us on GitHub / 支持我们、为项目加星
 - `app/TROUBLESHOOTING.md` - Troubleshooting guide / 故障排除指南
+- `app/AI_CHAT_SETUP.md` - AI chat feature setup / AI 聊天功能设置
 
 ### Common Issues / 常见问题
 
